@@ -221,8 +221,9 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error: detail,
-          reply:
-            "AI 응답 중 오류가 발생했어요. 네트워크나 API 키를 확인한 뒤 다시 시도해 주세요.",
+          reply: detail.includes("혼잡")
+            ? detail
+            : "AI 응답 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요.",
         },
         { status: 500 },
       );

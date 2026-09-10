@@ -1,4 +1,4 @@
-import { extractJson, getGeminiModel } from "@/lib/gemini";
+import { extractJson, generateGeminiText } from "@/lib/gemini";
 import type { CategoryKind } from "@/lib/categories";
 
 export type AiCategoryTree = {
@@ -16,7 +16,6 @@ const KIND_LABEL: Record<CategoryKind, string> = {
 export async function generateCategoryTree(
   kind: CategoryKind,
 ): Promise<AiCategoryTree> {
-  const model = getGeminiModel();
   const prompt = `당신은 한국 개인 가계부 카테고리 설계자입니다.
 ${KIND_LABEL[kind]} 내역을 분류할 대분류·소분류 트리를 JSON으로만 반환하세요.
 
@@ -30,8 +29,8 @@ ${KIND_LABEL[kind]} 내역을 분류할 대분류·소분류 트리를 JSON으�
 형식:
 {"majors":[{"name":"대분류명","minors":["소분류1","소분류2","대분류명(기타)"]}]}`;
 
-  const result = await model.generateContent(prompt);
-  const tree = extractJson<AiCategoryTree>(result.response.text());
+  const text = await generateGeminiText(prompt);
+  const tree = extractJson<AiCategoryTree>(text);
 
   if (!Array.isArray(tree.majors) || tree.majors.length !== 8) {
     throw new Error(`${KIND_LABEL[kind]} 대분류는 정확히 8개여야 합니다`);
@@ -78,7 +77,6 @@ export async function analyzeExpenseMessage(params: {
   expenseTree: AiCategoryTree;
   history: Array<{ role: "user" | "assistant"; content: string }>;
 }): Promise<ExpenseAnalysis> {
-  const model = getGeminiModel();
   const historyText = params.history
     .slice(-8)
     .map((m) => `${m.role === "user" ? "사용자" : "AI"}: ${m.content}`)
@@ -110,8 +108,8 @@ ${params.message}
 JSON만 반환:
 {"status":"ok|need_info|chat","date":"YYYY-MM-DD|null","description":"내용|null","amount":20000,"category_major":"교통비","category_minor":"교통비(기타)","reply":"응답"}`;
 
-  const result = await model.generateContent(prompt);
-  const parsed = extractJson<ExpenseAnalysis>(result.response.text());
+  const text = await generateGeminiText(prompt);
+  const parsed = extractJson<ExpenseAnalysis>(text);
 
   if (!parsed.reply?.trim()) {
     parsed.reply = "알겠어요. 지출 내용을 말씀해 주세요.";
@@ -127,7 +125,6 @@ export async function parseLedgerMessage(params: {
   incomeTree: AiCategoryTree;
   history: Array<{ role: "user" | "assistant"; content: string }>;
 }): Promise<ParsedLedgerIntent> {
-  const model = getGeminiModel();
   const historyText = params.history
     .slice(-8)
     .map((m) => `${m.role === "user" ? "사용자" : "AI"}: ${m.content}`)
@@ -160,8 +157,8 @@ ${params.message}
 JSON만 반환:
 {"intent":"save_expense|save_income|chat|clarify","date":"YYYY-MM-DD|null","amount":12345,"description":"내용","major":"대분류","minor":"소분류","reply":"응답"}`;
 
-  const result = await model.generateContent(prompt);
-  const parsed = extractJson<ParsedLedgerIntent>(result.response.text());
+  const text = await generateGeminiText(prompt);
+  const parsed = extractJson<ParsedLedgerIntent>(text);
 
   if (!parsed.reply?.trim()) {
     parsed.reply = "알겠어요. 무엇을 도와드릴까요?";
@@ -199,7 +196,6 @@ export async function answerStatsQuestion(params: {
   incomes: LedgerRowForAi[];
   history: Array<{ role: "user" | "assistant"; content: string }>;
 }): Promise<string> {
-  const model = getGeminiModel();
   const historyText = params.history
     .slice(-6)
     .map((m) => `${m.role === "user" ? "사용자" : "AI"}: ${m.content}`)
@@ -228,7 +224,6 @@ ${historyText || "(없음)"}
 사용자 질문:
 ${params.question}`;
 
-  const result = await model.generateContent(prompt);
-  const text = result.response.text().trim();
+  const text = (await generateGeminiText(prompt)).trim();
   return text || "데이터를 살펴봤는데, 답변을 만들지 못했어요. 질문을 조금 바꿔 볼래요?";
 }
