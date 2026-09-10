@@ -136,6 +136,24 @@ function HomeContent() {
               </div>
 
               <div className="flex flex-col gap-2.5 sm:gap-1.5">
+                <label
+                  htmlFor="description"
+                  className="text-base font-medium text-slate-700 sm:text-sm"
+                >
+                  내용
+                </label>
+                <input
+                  id="description"
+                  type="text"
+                  placeholder="예: 점심식사, 교통비"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  required
+                  className={fieldClassName}
+                />
+              </div>
+
+              <div className="flex flex-col gap-2.5 sm:gap-1.5">
                 <label htmlFor="amount" className="text-base font-medium text-slate-700 sm:text-sm">
                   금액
                 </label>
@@ -156,24 +174,6 @@ function HomeContent() {
                     원
                   </span>
                 </div>
-              </div>
-
-              <div className="flex flex-col gap-2.5 sm:gap-1.5">
-                <label
-                  htmlFor="description"
-                  className="text-base font-medium text-slate-700 sm:text-sm"
-                >
-                  내용
-                </label>
-                <input
-                  id="description"
-                  type="text"
-                  placeholder="예: 점심식사, 교통비"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  required
-                  className={fieldClassName}
-                />
               </div>
             </div>
 
