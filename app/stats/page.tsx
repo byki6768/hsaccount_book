@@ -1,36 +1,54 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppHeader } from "@/components/AppHeader";
 import { AuthGuard } from "@/components/AuthGuard";
-import { CategoryChart } from "@/components/CategoryChart";
-import { SpeechBubble } from "@/components/SpeechBubble";
+import {
+  StatsBarChart,
+  StatsLineChart,
+  StatsTable,
+  SummaryCards,
+} from "@/components/StatsVisuals";
 import { getSession } from "@/lib/auth";
 import {
   Category,
-  CategoryKind,
   CategoryStat,
-  MAX_CATEGORIES_PER_KIND,
   groupCategories,
 } from "@/lib/categories";
 import {
   buildMajorStats,
   buildMinorStats,
-  createMajorCategory,
-  createMinorCategory,
-  ensureDefaultCategories,
 } from "@/lib/categoryService";
 import { supabase } from "@/lib/supabase/client";
 
+type Tab = "all" | "income" | "expense";
+
 type TxRow = {
+  date: string;
   amount: number;
   category_id: number | null;
 };
 
-type CreateMode = {
-  kind: CategoryKind;
-  level: "major" | "minor";
-};
+function buildDailyPoints(rows: TxRow[]) {
+  const map = new Map<string, number>();
+  for (const row of rows) {
+    map.set(row.date, (map.get(row.date) ?? 0) + row.amount);
+  }
+  return Array.from(map.entries()).map(([date, amount]) => ({ date, amount }));
+}
+
+function buildBalancePoints(incomeRows: TxRow[], expenseRows: TxRow[]) {
+  const map = new Map<string, number>();
+  for (const row of incomeRows) {
+    map.set(row.date, (map.get(row.date) ?? 0) + row.amount);
+  }
+  for (const row of expenseRows) {
+    map.set(row.date, (map.get(row.date) ?? 0) - row.amount);
+  }
+  return Array.from(map.entries())
+    .map(([date, amount]) => ({ date, amount }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
 
 export default function StatsPage() {
   return (
@@ -41,27 +59,13 @@ export default function StatsPage() {
 }
 
 function StatsContent() {
+  const [tab, setTab] = useState<Tab>("all");
   const [expenseCategories, setExpenseCategories] = useState<Category[]>([]);
   const [incomeCategories, setIncomeCategories] = useState<Category[]>([]);
-  const [expenseMajorStats, setExpenseMajorStats] = useState<CategoryStat[]>([]);
-  const [expenseMinorStats, setExpenseMinorStats] = useState<CategoryStat[]>([]);
-  const [incomeMajorStats, setIncomeMajorStats] = useState<CategoryStat[]>([]);
-  const [incomeMinorStats, setIncomeMinorStats] = useState<CategoryStat[]>([]);
+  const [expenseRows, setExpenseRows] = useState<TxRow[]>([]);
+  const [incomeRows, setIncomeRows] = useState<TxRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [createMode, setCreateMode] = useState<CreateMode | null>(null);
-  const [newName, setNewName] = useState("");
-  const [selectedMajorId, setSelectedMajorId] = useState<number | "">("");
-  const [saving, setSaving] = useState(false);
-
-  const expenseGroups = useMemo(
-    () => groupCategories(expenseCategories),
-    [expenseCategories],
-  );
-  const incomeGroups = useMemo(
-    () => groupCategories(incomeCategories),
-    [incomeCategories],
-  );
 
   const load = useCallback(async () => {
     const session = getSession();
@@ -71,28 +75,40 @@ function StatsContent() {
     setError(null);
 
     try {
-      const { expense, income } = await ensureDefaultCategories(session.uniqueId);
-      setExpenseCategories(expense);
-      setIncomeCategories(income);
+      const ensureRes = await fetch("/api/categories/ensure", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memberUniqueId: session.uniqueId }),
+      });
+      const ensureData = await ensureRes.json();
+      if (!ensureRes.ok) {
+        throw new Error(ensureData.error || "카테고리를 준비하지 못했습니다");
+      }
 
-      const [{ data: expenses }, { data: incomes }] = await Promise.all([
-        supabase
-          .from("expenses")
-          .select("amount, category_id")
-          .eq("member_unique_id", session.uniqueId),
-        supabase
-          .from("incomes")
-          .select("amount, category_id")
-          .eq("member_unique_id", session.uniqueId),
-      ]);
+      const [{ data: categories, error: catError }, { data: expenses }, { data: incomes }] =
+        await Promise.all([
+          supabase
+            .from("categories")
+            .select("*")
+            .eq("member_unique_id", session.uniqueId)
+            .order("sort_order", { ascending: true }),
+          supabase
+            .from("expenses")
+            .select("date, amount, category_id")
+            .eq("member_unique_id", session.uniqueId),
+          supabase
+            .from("incomes")
+            .select("date, amount, category_id")
+            .eq("member_unique_id", session.uniqueId),
+        ]);
 
-      const expenseRows = (expenses ?? []) as TxRow[];
-      const incomeRows = (incomes ?? []) as TxRow[];
+      if (catError) throw new Error(catError.message);
 
-      setExpenseMajorStats(buildMajorStats(expenseRows, expense));
-      setExpenseMinorStats(buildMinorStats(expenseRows, expense));
-      setIncomeMajorStats(buildMajorStats(incomeRows, income));
-      setIncomeMinorStats(buildMinorStats(incomeRows, income));
+      const cats = (categories ?? []) as Category[];
+      setExpenseCategories(cats.filter((c) => c.kind === "expense"));
+      setIncomeCategories(cats.filter((c) => c.kind === "income"));
+      setExpenseRows((expenses ?? []) as TxRow[]);
+      setIncomeRows((incomes ?? []) as TxRow[]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "통계를 불러오지 못했습니다");
     } finally {
@@ -104,213 +120,169 @@ function StatsContent() {
     load();
   }, [load]);
 
-  const openCreate = (kind: CategoryKind) => {
-    setCreateMode({ kind, level: "major" });
-    setNewName("");
-    setSelectedMajorId("");
-    setError(null);
-  };
+  const expenseMajorStats = useMemo(
+    () => buildMajorStats(expenseRows, expenseCategories),
+    [expenseRows, expenseCategories],
+  );
+  const expenseMinorStats = useMemo(
+    () => buildMinorStats(expenseRows, expenseCategories),
+    [expenseRows, expenseCategories],
+  );
+  const incomeMajorStats = useMemo(
+    () => buildMajorStats(incomeRows, incomeCategories),
+    [incomeRows, incomeCategories],
+  );
+  const incomeMinorStats = useMemo(
+    () => buildMinorStats(incomeRows, incomeCategories),
+    [incomeRows, incomeCategories],
+  );
 
-  const handleCreate = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!createMode) return;
+  const incomeTotal = incomeRows.reduce((sum, row) => sum + row.amount, 0);
+  const expenseTotal = expenseRows.reduce((sum, row) => sum + row.amount, 0);
 
-    const session = getSession();
-    if (!session) return;
-
-    setSaving(true);
-    setError(null);
-
-    try {
-      if (createMode.level === "major") {
-        await createMajorCategory(session.uniqueId, createMode.kind, newName);
-      } else {
-        if (selectedMajorId === "") {
-          throw new Error("대분류를 선택하세요");
-        }
-        await createMinorCategory(
-          session.uniqueId,
-          createMode.kind,
-          selectedMajorId,
-          newName,
-        );
-      }
-      setNewName("");
-      setSelectedMajorId("");
-      setCreateMode(null);
-      await load();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "항목 생성에 실패했습니다");
-    } finally {
-      setSaving(false);
+  const overallMajorStats = useMemo(() => {
+    const merged = new Map<string, CategoryStat>();
+    for (const item of incomeMajorStats) {
+      const key = `수입·${item.name}`;
+      merged.set(key, {
+        ...item,
+        name: key,
+        amount: item.amount,
+        count: item.count,
+      });
     }
-  };
+    for (const item of expenseMajorStats) {
+      const key = `지출·${item.name}`;
+      const prev = merged.get(key);
+      if (prev) {
+        prev.amount += item.amount;
+        prev.count += item.count;
+      } else {
+        merged.set(key, {
+          ...item,
+          name: key,
+        });
+      }
+    }
+    return Array.from(merged.values()).sort((a, b) => b.amount - a.amount);
+  }, [incomeMajorStats, expenseMajorStats]);
 
-  const majorsForCreate =
-    createMode?.kind === "income" ? incomeGroups : expenseGroups;
+  const expenseGroups = useMemo(
+    () => groupCategories(expenseCategories),
+    [expenseCategories],
+  );
+  const incomeGroups = useMemo(
+    () => groupCategories(incomeCategories),
+    [incomeCategories],
+  );
+
+  const tabs: Array<{ id: Tab; label: string }> = [
+    { id: "all", label: "전체 통계" },
+    { id: "income", label: "수입 통계" },
+    { id: "expense", label: "지출 통계" },
+  ];
 
   return (
     <div className="min-h-full bg-[radial-gradient(ellipse_at_top,_#e8f5f0_0%,_#f7f8fa_45%,_#eef1f5_100%)]">
       <AppHeader loggedIn />
-      <div className="mx-auto flex min-h-[calc(100dvh-3.5rem)] w-full max-w-lg flex-col px-4 py-8 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-6">
-        <h1 className="text-3xl font-semibold text-slate-800">통계</h1>
-        <p className="mt-2 text-base text-slate-500">
-          대분류·소분류로 관리하고, AI 자동 분류를 준비합니다
+      <div className="mx-auto flex w-full max-w-lg flex-col px-4 py-6 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-6">
+        <h1 className="text-2xl font-semibold text-slate-800 sm:text-3xl">통계</h1>
+        <p className="mt-1 text-sm text-slate-500">
+          AI가 만든 대분류·소분류 기준으로 집계합니다
         </p>
 
+        <div className="mt-5 grid grid-cols-3 gap-2 rounded-2xl bg-white p-1 shadow-sm ring-1 ring-slate-200/80">
+          {tabs.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => setTab(item.id)}
+              className={`rounded-xl px-2 py-2.5 text-sm font-semibold transition ${
+                tab === item.id
+                  ? "bg-emerald-600 text-white"
+                  : "text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
         {loading ? (
-          <p className="mt-10 text-center text-slate-400">불러오는 중...</p>
+          <p className="mt-10 text-center text-slate-400">AI 카테고리·통계 준비 중...</p>
+        ) : error ? (
+          <div className="mt-6 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
+            {error}
+            <button
+              type="button"
+              onClick={load}
+              className="mt-2 block font-semibold underline"
+            >
+              다시 시도
+            </button>
+          </div>
         ) : (
-          <>
-            <div className="mt-8 flex-1 space-y-6">
-              {error && <SpeechBubble message={error} />}
+          <div className="mt-6 space-y-4">
+            {tab === "all" && (
+              <>
+                <SummaryCards incomeTotal={incomeTotal} expenseTotal={expenseTotal} />
+                <StatsTable title="수치 통계표 (대분류)" stats={overallMajorStats} />
+                <StatsBarChart title="막대그래프 (대분류 비교)" stats={overallMajorStats} />
+                <StatsLineChart
+                  title="선그래프 (일자별 순잔액)"
+                  points={buildBalancePoints(incomeRows, expenseRows)}
+                  color="#334155"
+                />
+                <CategoryTreePreview title="수입 카테고리 (AI)" groups={incomeGroups} tone="income" />
+                <CategoryTreePreview title="지출 카테고리 (AI)" groups={expenseGroups} tone="expense" />
+              </>
+            )}
 
-              <CategoryChart title="지출 통계 (대분류)" stats={expenseMajorStats} />
-              <CategoryChart title="지출 통계 (소분류)" stats={expenseMinorStats} />
-              <CategoryChart
-                title="수입 통계 (대분류)"
-                stats={incomeMajorStats}
-                accentClassName="bg-sky-500"
-              />
-              <CategoryChart
-                title="수입 통계 (소분류)"
-                stats={incomeMinorStats}
-                accentClassName="bg-sky-500"
-              />
+            {tab === "income" && (
+              <>
+                <SummaryCards incomeTotal={incomeTotal} expenseTotal={0} />
+                <StatsTable title="수치 통계표 (대분류)" stats={incomeMajorStats} />
+                <StatsTable title="수치 통계표 (소분류)" stats={incomeMinorStats} />
+                <StatsBarChart
+                  title="막대그래프 (대분류)"
+                  stats={incomeMajorStats}
+                  color="#0ea5e9"
+                />
+                <StatsLineChart
+                  title="선그래프 (일자별 수입)"
+                  points={buildDailyPoints(incomeRows)}
+                  color="#0ea5e9"
+                />
+                <CategoryTreePreview title="수입 카테고리 (AI)" groups={incomeGroups} tone="income" />
+              </>
+            )}
 
-              <CategoryTreeSection
-                title="지출 카테고리"
-                groups={expenseGroups}
-                tone="expense"
-              />
-              <CategoryTreeSection
-                title="수입 카테고리"
-                groups={incomeGroups}
-                tone="income"
-              />
-
-              <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm leading-relaxed text-slate-500">
-                AI가 내용을 분석하면 소분류(`category_id`)로 저장하고, 대분류는
-                소분류의 상위 항목으로 집계됩니다. 대분류·소분류는 각각 최대{" "}
-                {MAX_CATEGORIES_PER_KIND}개까지 등록할 수 있습니다.
-              </p>
-            </div>
-
-            <div className="mt-10 flex flex-col items-end gap-3">
-              {createMode && (
-                <form
-                  onSubmit={handleCreate}
-                  className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-                >
-                  <p className="mb-3 text-sm font-medium text-slate-700">
-                    {createMode.kind === "expense" ? "지출항목생성" : "수입항목생성"}
-                  </p>
-
-                  <div className="mb-3 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setCreateMode({ ...createMode, level: "major" })}
-                      className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold ${
-                        createMode.level === "major"
-                          ? "bg-emerald-600 text-white"
-                          : "border border-slate-200 text-slate-600"
-                      }`}
-                    >
-                      대분류
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCreateMode({ ...createMode, level: "minor" })}
-                      className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold ${
-                        createMode.level === "minor"
-                          ? "bg-emerald-600 text-white"
-                          : "border border-slate-200 text-slate-600"
-                      }`}
-                    >
-                      소분류
-                    </button>
-                  </div>
-
-                  {createMode.level === "minor" && (
-                    <select
-                      value={selectedMajorId}
-                      onChange={(e) =>
-                        setSelectedMajorId(
-                          e.target.value ? Number(e.target.value) : "",
-                        )
-                      }
-                      className="mb-3 h-11 w-full rounded-xl border border-slate-200 px-3 text-base outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
-                      required
-                    >
-                      <option value="">대분류 선택</option>
-                      {majorsForCreate.map((group) => (
-                        <option key={group.major.id} value={group.major.id}>
-                          {group.major.name}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-
-                  <input
-                    type="text"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder={
-                      createMode.level === "major"
-                        ? "예: 식대, 교통비, 배움"
-                        : "예: 식대(아점), 교통비(기타)"
-                    }
-                    className="mb-3 h-11 w-full rounded-xl border border-slate-200 px-3 text-base outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100"
-                    autoFocus
-                  />
-                  <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setCreateMode(null);
-                        setNewName("");
-                        setSelectedMajorId("");
-                      }}
-                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-600"
-                    >
-                      취소
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={saving}
-                      className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white disabled:opacity-60"
-                    >
-                      {saving ? "저장 중..." : "추가"}
-                    </button>
-                  </div>
-                </form>
-              )}
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => openCreate("expense")}
-                  className="rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700"
-                >
-                  지출항목생성
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openCreate("income")}
-                  className="rounded-xl bg-sky-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-sky-700"
-                >
-                  수입항목생성
-                </button>
-              </div>
-            </div>
-          </>
+            {tab === "expense" && (
+              <>
+                <SummaryCards incomeTotal={0} expenseTotal={expenseTotal} />
+                <StatsTable title="수치 통계표 (대분류)" stats={expenseMajorStats} />
+                <StatsTable title="수치 통계표 (소분류)" stats={expenseMinorStats} />
+                <StatsBarChart
+                  title="막대그래프 (대분류)"
+                  stats={expenseMajorStats}
+                  color="#059669"
+                />
+                <StatsLineChart
+                  title="선그래프 (일자별 지출)"
+                  points={buildDailyPoints(expenseRows)}
+                  color="#059669"
+                />
+                <CategoryTreePreview title="지출 카테고리 (AI)" groups={expenseGroups} tone="expense" />
+              </>
+            )}
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-function CategoryTreeSection({
+function CategoryTreePreview({
   title,
   groups,
   tone,
@@ -319,8 +291,6 @@ function CategoryTreeSection({
   groups: ReturnType<typeof groupCategories>;
   tone: "expense" | "income";
 }) {
-  const majorCount = groups.length;
-  const minorCount = groups.reduce((sum, group) => sum + group.minors.length, 0);
   const chipMajor =
     tone === "expense"
       ? "border-emerald-200 bg-emerald-50 text-emerald-900"
@@ -331,35 +301,26 @@ function CategoryTreeSection({
       : "border-sky-100 bg-white text-sky-700";
 
   return (
-    <section className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-      <div className="mb-4 flex items-baseline justify-between gap-3">
-        <h2 className="text-lg font-semibold text-slate-800">{title}</h2>
-        <span className="text-sm text-slate-400">
-          대분류 {majorCount}/{MAX_CATEGORIES_PER_KIND} · 소분류 {minorCount}
-        </span>
-      </div>
-      <ul className="space-y-4">
+    <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm sm:p-5">
+      <h3 className="mb-3 text-base font-semibold text-slate-800">{title}</h3>
+      <ul className="space-y-3">
         {groups.map((group) => (
           <li key={group.major.id}>
             <div
-              className={`inline-flex rounded-full border px-3 py-1.5 text-sm font-semibold ${chipMajor}`}
+              className={`inline-flex rounded-full border px-3 py-1 text-sm font-semibold ${chipMajor}`}
             >
-              대분류 · {group.major.name}
+              {group.major.name}
             </div>
-            {group.minors.length > 0 ? (
-              <ul className="mt-2 flex flex-wrap gap-2 pl-1">
-                {group.minors.map((minor) => (
-                  <li
-                    key={minor.id}
-                    className={`rounded-full border px-3 py-1 text-sm font-medium ${chipMinor}`}
-                  >
-                    소분류 · {minor.name}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-2 pl-1 text-xs text-slate-400">소분류 없음</p>
-            )}
+            <ul className="mt-2 flex flex-wrap gap-1.5 pl-1">
+              {group.minors.map((minor) => (
+                <li
+                  key={minor.id}
+                  className={`rounded-full border px-2.5 py-1 text-xs font-medium ${chipMinor}`}
+                >
+                  {minor.name}
+                </li>
+              ))}
+            </ul>
           </li>
         ))}
       </ul>

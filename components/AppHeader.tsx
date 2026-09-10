@@ -41,7 +41,7 @@ export function AppHeader({ loggedIn }: AppHeaderProps) {
             height={32}
             className="h-8 w-8 rounded-full object-cover"
           />
-          <span className="truncate">나의 AI 가계부</span>
+          <span className="truncate">AI 가계부 챗봇</span>
         </Link>
 
         <div className="flex shrink-0 items-center gap-2">
