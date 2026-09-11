@@ -43,20 +43,32 @@ export function isValidPassword(value: string): boolean {
 }
 
 export function isValidPhone(value: string): boolean {
-  const digits = value.replace(/\D/g, "");
+  const digits = normalizePhone(value);
   return /^\d{9,11}$/.test(digits);
 }
 
+/** 국가번호: 숫자만 저장 (예: "+ 82" → "82") */
+export function normalizeCountryCode(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+export function isValidCountryCode(value: string): boolean {
+  return /^\d{1,4}$/.test(normalizeCountryCode(value));
+}
+
+/** 휴대폰 번호: 하이픈·공백 등 무시하고 숫자만 */
 export function normalizePhone(value: string): string {
   return value.replace(/\D/g, "");
 }
 
+/** 표시용 로그인 ID (국가번호-휴대폰번호) */
 export function getLoginId(member: Pick<Member, "auth_type" | "email" | "country_code" | "phone">): string {
   if (member.auth_type === "email") {
     return member.email ?? "";
   }
-  const code = member.country_code?.trim() || "+82";
-  return `${code} ${member.phone ?? ""}`.trim();
+  const code = normalizeCountryCode(member.country_code ?? "") || "82";
+  const phone = normalizePhone(member.phone ?? "");
+  return phone ? `${code}-${phone}` : code;
 }
 
 export function getSession(): SessionUser | null {

@@ -56,18 +56,25 @@ export type ExpenseAnalysis = {
   date: string | null;
   description: string | null;
   amount: number | null;
+  item_name: string | null;
+  place: string | null;
   category_major: string | null;
   category_minor: string | null;
   reply: string;
 };
 
 export type ParsedLedgerIntent = {
-  intent: "save_expense" | "save_income" | "chat" | "clarify";
+  intent: "save_expense" | "save_income" | "chat" | "clarify" | "search";
   date: string | null;
   amount: number | null;
   description: string | null;
+  item_name: string | null;
+  place: string | null;
+  income_detail: string | null;
+  income_source: string | null;
   major: string | null;
   minor: string | null;
+  search_query: string | null;
   reply: string;
 };
 
@@ -95,18 +102,20 @@ ${historyText || "(없음)"}
 ${params.message}
 
 규칙:
-1) 통계/조회 질문(얼마, 뭐, 어떻게, 이번 달 총액 등)이면 절대 저장하지 말고 status="chat" 로 두고 reply에 "(질문으로 전달됨)" 정도만 짧게 적는다.
-2) 지출 기록이고 금액(숫자+원/만)이 있으면 status="ok" 로 date, description, amount, category_major, category_minor 를 채운다.
+1) 통계/조회/검색 질문(얼마, 뭐, 찾아, 검색 등)이면 절대 저장하지 말고 status="chat".
+2) 지출 기록이고 금액(숫자+원/만)이 있으면 status="ok" 로 date, description, amount, item_name, place, category_major, category_minor 를 채운다.
 3) date는 YYYY-MM-DD. "오늘"→${params.today}, "어제"→하루 전. 날짜를 전혀 알 수 없으면 null.
 4) amount는 정수(원). "2만원"=20000. 금액을 알 수 없으면 null.
 5) description은 짧은 한국어 내용(예: 택시, 점심).
-6) category_major / category_minor 는 위 트리에 있는 이름만 사용. 애매하면 해당 대분류의 (기타) 소분류.
-7) 기록 의도인데 날짜 또는 금액이 없으면 status="need_info".
-8) 인사/잡담이면 status="chat".
-9) reply는 친근한 한국어. status=ok 이면 저장 확인 멘트.
+6) item_name은 구매 품목명(예: 아메리카노, 김치). 모르면 description과 같게 하거나 null.
+7) place는 구매 장소/가게명(예: 스타벅스, 이마트). 없으면 null.
+8) category_major / category_minor 는 위 트리에 있는 이름만 사용. 애매하면 해당 대분류의 (기타) 소분류.
+9) 기록 의도인데 날짜 또는 금액이 없으면 status="need_info".
+10) 인사/잡담이면 status="chat".
+11) reply는 친근한 한국어. status=ok 이면 저장 확인 멘트.
 
 JSON만 반환:
-{"status":"ok|need_info|chat","date":"YYYY-MM-DD|null","description":"내용|null","amount":20000,"category_major":"교통비","category_minor":"교통비(기타)","reply":"응답"}`;
+{"status":"ok|need_info|chat","date":"YYYY-MM-DD|null","description":"내용|null","amount":20000,"item_name":"택시","place":null,"category_major":"교통비","category_minor":"교통비(기타)","reply":"응답"}`;
 
   const text = await generateGeminiText(prompt);
   const parsed = extractJson<ExpenseAnalysis>(text);
@@ -114,6 +123,8 @@ JSON만 반환:
   if (!parsed.reply?.trim()) {
     parsed.reply = "알겠어요. 지출 내용을 말씀해 주세요.";
   }
+  parsed.item_name = parsed.item_name ?? null;
+  parsed.place = parsed.place ?? null;
 
   return parsed;
 }
@@ -147,15 +158,18 @@ ${params.message}
 
 할 일:
 1) 메시지가 지출/수입 기록이면 intent를 save_expense 또는 save_income으로 설정
-2) date(YYYY-MM-DD), amount(정수 원), description을 추출
-3) 해당 kind 트리에서 가장 적합한 major/minor 이름을 정확히 골라 지정 (없는 이름은 금지, 애매하면 해당 대분류의 (기타) 소분류)
-4) 날짜가 없으면 ${params.today} 사용. 금액이 없으면 intent=clarify
-5) 정보가 부족하면 intent=clarify 로 필요한 것만 짧게 질문
-6) 일반 대화면 intent=chat
-7) reply는 짧고 친근한 한국어 1~3문장. 저장 성공 가정 시 확인 멘트를 포함
+2) 검색/찾기 요청("찾아줘","검색","~한 적","어디서 샀")이면 intent=search, search_query에 핵심 키워드
+3) date(YYYY-MM-DD), amount(정수 원), description을 추출
+4) 지출이면 item_name(구매 품목명), place(구매 장소)도 추출
+5) 수입이면 income_detail(수입 내역), income_source(수입처)도 추출
+6) 해당 kind 트리에서 가장 적합한 major/minor 이름을 정확히 골라 지정
+7) 날짜가 없으면 ${params.today} 사용. 금액이 없으면 intent=clarify
+8) 정보가 부족하면 intent=clarify
+9) 일반 대화면 intent=chat
+10) reply는 짧고 친근한 한국어 1~3문장
 
 JSON만 반환:
-{"intent":"save_expense|save_income|chat|clarify","date":"YYYY-MM-DD|null","amount":12345,"description":"내용","major":"대분류","minor":"소분류","reply":"응답"}`;
+{"intent":"save_expense|save_income|search|chat|clarify","date":"YYYY-MM-DD|null","amount":12345,"description":"내용","item_name":"품목|null","place":"장소|null","income_detail":"내역|null","income_source":"수입처|null","major":"대분류","minor":"소분류","search_query":"키워드|null","reply":"응답"}`;
 
   const text = await generateGeminiText(prompt);
   const parsed = extractJson<ParsedLedgerIntent>(text);
@@ -163,6 +177,11 @@ JSON만 반환:
   if (!parsed.reply?.trim()) {
     parsed.reply = "알겠어요. 무엇을 도와드릴까요?";
   }
+  parsed.item_name = parsed.item_name ?? null;
+  parsed.place = parsed.place ?? null;
+  parsed.income_detail = parsed.income_detail ?? null;
+  parsed.income_source = parsed.income_source ?? null;
+  parsed.search_query = parsed.search_query ?? null;
 
   return parsed;
 }

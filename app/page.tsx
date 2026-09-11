@@ -1,23 +1,12 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { hasRegisteredBefore } from "@/lib/auth";
 
 export default function LandingPage() {
   const router = useRouter();
-  const [hasAccount, setHasAccount] = useState(false);
-
-  useEffect(() => {
-    setHasAccount(hasRegisteredBefore());
-  }, []);
 
   const goLogin = () => {
-    if (!hasRegisteredBefore()) {
-      router.push("/signup");
-      return;
-    }
     router.push("/login");
   };
 
@@ -27,7 +16,7 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-full bg-[radial-gradient(ellipse_at_top,_#e8f5f0_0%,_#f7f8fa_45%,_#eef1f5_100%)]">
-      <div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center justify-center px-6 py-12 pb-[max(2rem,env(safe-area-inset-bottom))]">
+      <div className="page-main flex min-h-full w-full flex-col items-center justify-center py-10 sm:py-12">
         <div className="flex w-full flex-1 flex-col items-center justify-center text-center">
           <div className="relative mb-6">
             <div className="absolute inset-0 scale-110 rounded-full bg-emerald-200/40 blur-2xl" />
@@ -63,11 +52,6 @@ export default function LandingPage() {
           >
             신규 회원
           </button>
-          {!hasAccount && (
-            <p className="text-center text-sm text-slate-500">
-              아직 회원이 아니시면 로그인 시 가입 화면으로 이동합니다
-            </p>
-          )}
         </div>
       </div>
     </div>

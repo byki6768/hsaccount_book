@@ -3,6 +3,8 @@
 :root {
   --background: #f7f8fa;
   --foreground: #1e293b;
+  --page-max: 40rem;
+  --page-pad-x: 1rem;
 }
 
 @theme inline {
@@ -16,4 +18,39 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-geist-sans), sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  text-size-adjust: 100%;
+}
+
+.page-shell {
+  width: 100%;
+  max-width: var(--page-max);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: max(var(--page-pad-x), env(safe-area-inset-left));
+  padding-right: max(var(--page-pad-x), env(safe-area-inset-right));
+}
+
+.page-main {
+  width: 100%;
+  max-width: var(--page-max);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: max(var(--page-pad-x), env(safe-area-inset-left));
+  padding-right: max(var(--page-pad-x), env(safe-area-inset-right));
+  padding-bottom: max(2rem, env(safe-area-inset-bottom));
+}
+
+@media (min-width: 640px) {
+  :root {
+    --page-max: 42rem;
+    --page-pad-x: 1.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --page-max: 46rem;
+    --page-pad-x: 1.75rem;
+  }
 }

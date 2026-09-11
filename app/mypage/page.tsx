@@ -161,9 +161,9 @@ function MyPageContent() {
   return (
     <div className="min-h-full bg-[radial-gradient(ellipse_at_top,_#e8f5f0_0%,_#f7f8fa_45%,_#eef1f5_100%)]">
       <AppHeader loggedIn />
-      <div className="mx-auto flex min-h-[calc(100dvh-3.5rem)] w-full max-w-lg flex-col px-4 py-8 pb-[max(2rem,env(safe-area-inset-bottom))] sm:px-6">
-        <h1 className="text-3xl font-semibold text-slate-800">마이 페이지</h1>
-        <p className="mt-2 text-base text-slate-500">계정 정보를 확인하고 관리하세요</p>
+      <div className="page-main flex min-h-[calc(100dvh-5.5rem)] flex-col py-6 sm:py-8">
+        <h1 className="text-2xl font-semibold text-slate-800 sm:text-3xl">마이 페이지</h1>
+        <p className="mt-2 text-sm text-slate-500 sm:text-base">계정 정보를 확인하고 관리하세요</p>
 
         {loading ? (
           <p className="mt-10 text-center text-slate-400">불러오는 중...</p>
@@ -268,13 +268,13 @@ function MyPageContent() {
                 type="button"
                 onClick={handleWithdraw}
                 disabled={saving}
-                className={`rounded-xl px-3 py-2 text-sm font-semibold text-white transition disabled:opacity-60 ${
+                className={`min-w-[14rem] rounded-xl px-10 py-2.5 text-sm font-semibold transition disabled:opacity-60 sm:min-w-[16rem] ${
                   withdrawStep === "confirm"
-                    ? "bg-rose-600 hover:bg-rose-700"
-                    : "bg-emerald-600 hover:bg-emerald-700"
+                    ? "bg-rose-500 text-white hover:bg-rose-600"
+                    : "bg-[#f7e9a8] text-slate-800 hover:bg-[#f3e08f]"
                 }`}
               >
-                {withdrawStep === "confirm" ? "탈퇴 확인" : "회원탈퇴"}
+                {withdrawStep === "confirm" ? "탈퇴 확인" : "회원 탈퇴"}
               </button>
             </div>
           </>

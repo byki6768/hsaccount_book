@@ -10,10 +10,17 @@ import {
   ensureAiCategoryTrees,
   findMinorCategoryId,
 } from "@/lib/aiCategoryService";
-import { classifyChatIntent } from "@/lib/chatIntent";
+import { classifyChatIntent, extractSearchQuery } from "@/lib/chatIntent";
 import type { Category } from "@/lib/categories";
 import { isMajor, isMinor } from "@/lib/categories";
+import { recordExpenseLabels, recordIncomeLabels } from "@/lib/ledgerLabels";
+import {
+  formatSearchHitsForAi,
+  formatSearchHitsForUi,
+  searchMemberLedger,
+} from "@/lib/ledgerSearch";
 import { createServerSupabase } from "@/lib/supabase/server";
+import { generateGeminiText } from "@/lib/gemini";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -207,6 +214,41 @@ export async function POST(request: Request) {
       }
     }
 
+    // ——— 검색 ———
+    if (intent === "search") {
+      try {
+        const query = extractSearchQuery(message) || message;
+        const hits = await searchMemberLedger(supabase, memberUniqueId, query);
+        const reply = await generateGeminiText(
+          `당신은 친절한 가계부 검색 도우미입니다.
+회원 식별자/고유ID는 절대 언급하지 마세요.
+검색어: ${query}
+검색 결과(JSON):
+${formatSearchHitsForAi(hits)}
+
+결과를 바탕으로 자연스러운 한국어로 답하세요. 결과가 없으면 없다고 말하세요.
+금액은 천단위 콤마. 2~6문장.`,
+        );
+        return NextResponse.json({
+          reply: reply.trim() || formatSearchHitsForUi(hits),
+          intent: "search",
+          search: { query, hits },
+          extracted: null,
+          saved: null,
+          generated,
+        });
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : "검색 실패";
+        return NextResponse.json(
+          {
+            error: detail,
+            reply: "검색 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.",
+          },
+          { status: 500 },
+        );
+      }
+    }
+
     // ——— 지출/수입 기록 ———
     let analysis;
     try {
@@ -291,6 +333,8 @@ export async function POST(request: Request) {
         date,
         description,
         amount: Math.round(amount),
+        item_name: analysis.item_name,
+        place: analysis.place,
         category_major: analysis.category_major,
         category_minor: analysis.category_minor,
       };
@@ -302,16 +346,30 @@ export async function POST(request: Request) {
         extracted.category_minor,
       );
 
+      const labels = await recordExpenseLabels(
+        supabase,
+        memberUniqueId,
+        extracted.amount,
+        {
+          itemName: extracted.item_name ?? extracted.description,
+          place: extracted.place,
+        },
+      );
+
       const { data, error } = await supabase
         .from("expenses")
         .insert({
           date: extracted.date,
           amount: extracted.amount,
           description: extracted.description,
+          item_name: labels.item_name,
+          place: labels.place,
           member_unique_id: memberUniqueId,
           category_id: categoryId,
         })
-        .select("id, date, amount, description, category_id, created_at")
+        .select(
+          "id, date, amount, description, item_name, place, category_id, created_at",
+        )
         .single();
 
       if (error) {
@@ -369,6 +427,34 @@ export async function POST(request: Request) {
         });
       }
 
+      if (parsed.intent === "search") {
+        const query =
+          parsed.search_query?.trim() ||
+          extractSearchQuery(message) ||
+          message;
+        const hits = await searchMemberLedger(supabase, memberUniqueId, query);
+        const reply =
+          parsed.reply?.includes("검색") || parsed.reply?.includes("찾")
+            ? `${parsed.reply}\n\n${formatSearchHitsForUi(hits)}`
+            : (
+                await generateGeminiText(
+                  `친절한 가계부 검색 답변. 고유ID/회원정보는 말하지 마세요.
+검색어: ${query}
+결과: ${formatSearchHitsForAi(hits)}
+자연스러운 한국어 2~6문장.`,
+                )
+              ).trim() || formatSearchHitsForUi(hits);
+
+        return NextResponse.json({
+          reply,
+          intent: "search",
+          search: { query, hits },
+          extracted: null,
+          saved: null,
+          generated,
+        });
+      }
+
       if (parsed.intent === "save_income") {
         const amount = Number(parsed.amount);
         const description = parsed.description?.trim();
@@ -393,16 +479,30 @@ export async function POST(request: Request) {
           parsed.minor,
         );
 
+        const labels = await recordIncomeLabels(
+          supabase,
+          memberUniqueId,
+          Math.round(amount),
+          {
+            incomeDetail: parsed.income_detail ?? description,
+            incomeSource: parsed.income_source,
+          },
+        );
+
         const { data, error } = await supabase
           .from("incomes")
           .insert({
             date,
             amount: Math.round(amount),
             description,
+            income_detail: labels.income_detail,
+            income_source: labels.income_source,
             member_unique_id: memberUniqueId,
             category_id: categoryId,
           })
-          .select("id, date, amount, description, category_id, created_at")
+          .select(
+            "id, date, amount, description, income_detail, income_source, category_id, created_at",
+          )
           .single();
 
         if (error) {
@@ -422,11 +522,87 @@ export async function POST(request: Request) {
             date,
             description,
             amount: Math.round(amount),
+            income_detail: labels.income_detail,
+            income_source: labels.income_source,
             category_major: parsed.major,
             category_minor: parsed.minor,
           },
           saved: {
             type: "income" as const,
+            ...data,
+            categoryName:
+              categories.find((c) => c.id === categoryId)?.name ??
+              parsed.minor ??
+              "미분류",
+          },
+          generated,
+        });
+      }
+
+      // save_expense via parseLedger fallback
+      if (parsed.intent === "save_expense") {
+        const amount = Number(parsed.amount);
+        const description = parsed.description?.trim();
+        const date = normalizeDate(parsed.date, today) ?? today;
+        if (!description || Number.isNaN(amount) || amount <= 0) {
+          return NextResponse.json({
+            reply: parsed.reply || "금액과 내용을 알려주세요.",
+            intent: "ledger",
+            extracted: null,
+            saved: null,
+            generated,
+          });
+        }
+        const categoryId = findMinorCategoryId(
+          categories,
+          "expense",
+          parsed.major,
+          parsed.minor,
+        );
+        const labels = await recordExpenseLabels(
+          supabase,
+          memberUniqueId,
+          Math.round(amount),
+          {
+            itemName: parsed.item_name ?? description,
+            place: parsed.place,
+          },
+        );
+        const { data, error } = await supabase
+          .from("expenses")
+          .insert({
+            date,
+            amount: Math.round(amount),
+            description,
+            item_name: labels.item_name,
+            place: labels.place,
+            member_unique_id: memberUniqueId,
+            category_id: categoryId,
+          })
+          .select(
+            "id, date, amount, description, item_name, place, category_id, created_at",
+          )
+          .single();
+        if (error) {
+          return NextResponse.json(
+            { error: error.message, reply: "저장 중 오류가 발생했어요." },
+            { status: 500 },
+          );
+        }
+        return NextResponse.json({
+          reply: parsed.reply,
+          intent: "ledger",
+          extracted: {
+            date,
+            description,
+            amount: Math.round(amount),
+            item_name: labels.item_name,
+            place: labels.place,
+            category_major: parsed.major,
+            category_minor: parsed.minor,
+          },
+          saved: {
+            type: "expense" as const,
             ...data,
             categoryName:
               categories.find((c) => c.id === categoryId)?.name ??

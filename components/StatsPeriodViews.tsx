@@ -24,6 +24,15 @@ const PASTEL = {
   expenseAlt: "bg-[#d4a574]",
 } as const;
 
+/** 항목 열용 엷은 파스텔 (테마별) */
+const LABEL_PASTEL = {
+  expense: "bg-[#f8e4e4] text-rose-900",
+  income: "bg-[#e2eef8] text-sky-900",
+  headerExpense: "bg-[#f3d6d6] text-rose-800",
+  headerIncome: "bg-[#d4e4f4] text-sky-800",
+  headerAll: "bg-[#e8eee9] text-slate-700",
+} as const;
+
 function resolveMajorId(
   categories: Category[],
   categoryId: number | null,
@@ -129,19 +138,47 @@ function Pill({
   );
 }
 
+function cellAmount(amount: number) {
+  if (amount === 0) return <span className="text-slate-300">-</span>;
+  return formatWon(amount);
+}
+
 function WeeklyGrid({
   rowLabels,
   values,
+  showWeekSubtotal = false,
+  labelThemes,
+  labelHeaderTheme = "all",
 }: {
   rowLabels: string[];
   values: number[][];
+  showWeekSubtotal?: boolean;
+  /** 행별 항목 열 테마 (expense | income). 없으면 헤더 테마를 따름 */
+  labelThemes?: Array<"expense" | "income">;
+  labelHeaderTheme?: "expense" | "income" | "all";
 }) {
+  const headerClass =
+    labelHeaderTheme === "expense"
+      ? LABEL_PASTEL.headerExpense
+      : labelHeaderTheme === "income"
+        ? LABEL_PASTEL.headerIncome
+        : LABEL_PASTEL.headerAll;
+
+  const fallbackTheme: "expense" | "income" =
+    labelHeaderTheme === "income" ? "income" : "expense";
+
   return (
     <div className="mt-3 overflow-x-auto rounded-2xl border border-slate-200/80 bg-white shadow-sm">
-      <table className="w-full min-w-[520px] border-collapse text-center text-xs sm:text-sm">
+      <table
+        className={`w-full border-collapse text-center text-xs sm:text-sm ${
+          showWeekSubtotal ? "min-w-[600px]" : "min-w-[520px]"
+        }`}
+      >
         <thead>
           <tr className="bg-slate-50 text-slate-600">
-            <th className="sticky left-0 z-10 bg-slate-50 px-2 py-2.5 text-left font-semibold">
+            <th
+              className={`sticky left-0 z-10 px-2 py-2.5 text-left font-semibold ${headerClass}`}
+            >
               항목
             </th>
             {WEEKDAY_LABELS.map((label) => (
@@ -149,30 +186,62 @@ function WeeklyGrid({
                 {label}
               </th>
             ))}
+            {showWeekSubtotal && (
+              <th className="bg-[#e8f2ec] px-1.5 py-2.5 font-semibold text-emerald-800">
+                주간 잔액
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
-          {rowLabels.map((label, rowIndex) => (
-            <tr key={`${label}-${rowIndex}`} className="border-t border-slate-100">
-              <th className="sticky left-0 z-10 max-w-[9rem] bg-white px-2 py-2.5 text-left text-[11px] font-semibold leading-snug text-slate-700 sm:max-w-[11rem] sm:text-xs">
-                {label}
-              </th>
-              {values[rowIndex]?.map((amount, dayIndex) => (
-                <td
-                  key={`${rowIndex}-${dayIndex}`}
-                  className="px-1 py-2 tabular-nums text-slate-700"
+          {rowLabels.map((label, rowIndex) => {
+            const dayValues = values[rowIndex] ?? [];
+            const weekSubtotal = dayValues.reduce((a, b) => a + b, 0);
+            const theme = labelThemes?.[rowIndex] ?? fallbackTheme;
+            const labelClass = LABEL_PASTEL[theme];
+            return (
+              <tr
+                key={`${label}-${rowIndex}`}
+                className="border-t border-slate-100"
+              >
+                <th
+                  className={`sticky left-0 z-10 max-w-[9rem] px-2 py-2.5 text-left text-[11px] font-semibold leading-snug sm:max-w-[11rem] sm:text-xs ${labelClass}`}
                 >
-                  {amount === 0 ? (
-                    <span className="text-slate-300">-</span>
-                  ) : (
-                    formatWon(amount)
-                  )}
-                </td>
-              ))}
-            </tr>
-          ))}
+                  {label}
+                </th>
+                {dayValues.map((amount, dayIndex) => (
+                  <td
+                    key={`${rowIndex}-${dayIndex}`}
+                    className="px-1 py-2 tabular-nums text-slate-700"
+                  >
+                    {cellAmount(amount)}
+                  </td>
+                ))}
+                {showWeekSubtotal && (
+                  <td className="bg-[#f3faf6] px-1 py-2 font-semibold tabular-nums text-emerald-800">
+                    {cellAmount(weekSubtotal)}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function WeekBalanceBar({ balance }: { balance: number }) {
+  return (
+    <div className="mt-3 flex justify-end">
+      <div className="flex w-1/2 min-w-[11rem] max-w-full overflow-hidden rounded-xl border border-[#c5ddd2] bg-[#dceee6] text-sm shadow-sm sm:text-base">
+        <div className="flex w-[42%] items-center justify-center border-r border-[#c5ddd2] bg-[#cfe6db] px-2 py-2.5 font-semibold text-emerald-900">
+          Balance
+        </div>
+        <div className="flex flex-1 items-center justify-end px-3 py-2.5 font-semibold tabular-nums text-slate-800">
+          {formatWon(balance)}
+        </div>
+      </div>
     </div>
   );
 }
@@ -236,15 +305,17 @@ export function OverallPeriodPanel({
 
   const weekIncome = weekKeys.map((k) => incomeByDate.get(k) ?? 0);
   const weekExpense = weekKeys.map((k) => expenseByDate.get(k) ?? 0);
-  const weekBalance = weekKeys.map((_, i) => weekIncome[i] - weekExpense[i]);
+  const weekIncomeSum = weekIncome.reduce((a, b) => a + b, 0);
+  const weekExpenseSum = weekExpense.reduce((a, b) => a + b, 0);
+  const weekNetBalance = weekIncomeSum - weekExpenseSum;
 
   return (
     <section>
       <PeriodToggle
         mode={mode}
         onMode={setMode}
-        weeklyLabel="주간 수입지출 현황"
-        monthlyLabel="월간 수입지출 현황"
+        weeklyLabel="주간 지출·수입 보기"
+        monthlyLabel="월간 지출·수입 보기"
       />
       <NavBar
         label={mode === "week" ? weekRangeLabel(anchorKey) : monthLabel(anchorKey)}
@@ -260,14 +331,19 @@ export function OverallPeriodPanel({
         }
       />
       <h2 className="mt-2 text-base font-semibold text-slate-800">
-        {mode === "week" ? "주간 수입지출 현황" : "월간 수입지출 현황"}
+        {mode === "week" ? "주간 지출·수입 보기" : "월간 지출·수입 보기"}
       </h2>
 
       {mode === "week" ? (
-        <WeeklyGrid
-          rowLabels={["잔액", "지출", "수입"]}
-          values={[weekBalance, weekExpense, weekIncome]}
-        />
+        <>
+          <WeeklyGrid
+            rowLabels={["지출", "수입"]}
+            values={[weekExpense, weekIncome]}
+            labelThemes={["expense", "income"]}
+            labelHeaderTheme="all"
+          />
+          <WeekBalanceBar balance={weekNetBalance} />
+        </>
       ) : (
         <MonthCalendarShell
           anchorKey={anchorKey}
@@ -311,16 +387,12 @@ export function CategoryPeriodPanel({
   );
   const totalByDate = sumByDate(rows);
 
-  const weekTotals = weekKeys.map((k) => totalByDate.get(k) ?? 0);
-  const weekTotalSum = weekTotals.reduce((a, b) => a + b, 0);
-
   const majorRows = majors.map((major) => {
     const dayValues = weekKeys.map(
       (k) => byDateMajor.get(k)?.get(major.id) ?? 0,
     );
-    const weekSum = dayValues.reduce((a, b) => a + b, 0);
     return {
-      label: `${major.name}: ${formatWon(weekSum)}`,
+      label: major.name,
       values: dayValues,
     };
   });
@@ -331,15 +403,10 @@ export function CategoryPeriodPanel({
   const uncategorizedSum = uncategorizedValues.reduce((a, b) => a + b, 0);
   if (uncategorizedSum > 0) {
     majorRows.push({
-      label: `미분류: ${formatWon(uncategorizedSum)}`,
+      label: "미분류",
       values: uncategorizedValues,
     });
   }
-
-  const totalLabel =
-    kind === "income"
-      ? `수입합계: ${formatWon(weekTotalSum)}`
-      : `지출합계: ${formatWon(weekTotalSum)}`;
 
   const titleWeek = kind === "income" ? "주간 수입 현황" : "주간 지출 현황";
   const titleMonth = kind === "income" ? "월간 수입 현황" : "월간 지출 현황";
@@ -374,8 +441,11 @@ export function CategoryPeriodPanel({
 
       {mode === "week" ? (
         <WeeklyGrid
-          rowLabels={[totalLabel, ...majorRows.map((r) => r.label)]}
-          values={[weekTotals, ...majorRows.map((r) => r.values)]}
+          rowLabels={majorRows.map((r) => r.label)}
+          values={majorRows.map((r) => r.values)}
+          showWeekSubtotal
+          labelThemes={majorRows.map(() => kind)}
+          labelHeaderTheme={kind}
         />
       ) : (
         <MonthCalendarShell

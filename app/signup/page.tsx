@@ -7,10 +7,12 @@ import { SpeechBubble } from "@/components/SpeechBubble";
 import {
   generateUniqueId,
   getLoginId,
+  isValidCountryCode,
   isValidEmail,
   isValidPassword,
   isValidPhone,
   markRegistered,
+  normalizeCountryCode,
   normalizePhone,
   setSession,
 } from "@/lib/auth";
@@ -23,7 +25,7 @@ export default function SignupPage() {
   const router = useRouter();
   const [mode, setMode] = useState<SignupMode>("select");
   const [email, setEmail] = useState("");
-  const [countryCode, setCountryCode] = useState("+ 82");
+  const [countryCode, setCountryCode] = useState("+82");
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
@@ -32,11 +34,14 @@ export default function SignupPage() {
     phone: false,
     password: false,
     passwordConfirm: false,
+    countryCode: false,
   });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
   const emailInvalid = touched.email && !isValidEmail(email);
+  const countryCodeInvalid =
+    touched.countryCode && !isValidCountryCode(countryCode);
   const phoneInvalid = touched.phone && !isValidPhone(phone);
   const passwordInvalid = touched.password && !isValidPassword(password);
   const passwordMismatch =
@@ -49,12 +54,15 @@ export default function SignupPage() {
     setTouched({
       email: mode === "email",
       phone: mode === "phone",
+      countryCode: mode === "phone",
       password: true,
       passwordConfirm: true,
     });
 
     if (mode === "email" && !isValidEmail(email)) return;
-    if (mode === "phone" && !isValidPhone(phone)) return;
+    if (mode === "phone") {
+      if (!isValidCountryCode(countryCode) || !isValidPhone(phone)) return;
+    }
     if (!isValidPassword(password)) return;
     if (password !== passwordConfirm) return;
 
@@ -72,6 +80,24 @@ export default function SignupPage() {
     }
 
     const hashedPassword = await hashPassword(password);
+    const normalizedCode = normalizeCountryCode(countryCode) || "82";
+    const phoneDigits = normalizePhone(phone);
+
+    if (mode === "phone") {
+      const { data: dup } = await supabase
+        .from("members")
+        .select("id")
+        .eq("auth_type", "phone")
+        .eq("country_code", normalizedCode)
+        .eq("phone", phoneDigits)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (dup) {
+        setFormError("이미 등록된 계정입니다. 로그인해 주세요.");
+        setSubmitting(false);
+        return;
+      }
+    }
 
     const payload =
       mode === "email"
@@ -88,8 +114,8 @@ export default function SignupPage() {
             unique_id: uniqueId,
             auth_type: "phone",
             email: null as string | null,
-            country_code: countryCode.trim() || "+ 82",
-            phone: normalizePhone(phone),
+            country_code: normalizedCode,
+            phone: phoneDigits,
             password: hashedPassword,
             is_active: true,
           };
@@ -122,7 +148,7 @@ export default function SignupPage() {
 
   return (
     <div className="min-h-full bg-[radial-gradient(ellipse_at_top,_#e8f5f0_0%,_#f7f8fa_45%,_#eef1f5_100%)]">
-      <div className="mx-auto flex min-h-full w-full max-w-lg flex-col px-4 py-10 sm:px-6">
+      <div className="page-main flex min-h-full w-full flex-col py-8 sm:py-10">
         <button
           type="button"
           onClick={() => (mode === "select" ? router.push("/") : setMode("select"))}
@@ -188,22 +214,36 @@ export default function SignupPage() {
                   ID (휴대폰 번호)
                 </label>
                 <div className="flex items-end gap-2">
-                  <input
-                    id="countryCode"
-                    type="text"
-                    value={countryCode}
-                    onChange={(e) => setCountryCode(e.target.value)}
-                    aria-label="국가번호"
-                    className="h-14 w-[6.5rem] shrink-0 rounded-2xl border border-slate-200 bg-white px-3 text-center text-lg text-slate-800 outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100 sm:h-12 sm:text-base"
-                  />
+                  <div className="w-[6.5rem] shrink-0">
+                    {countryCodeInvalid && (
+                      <SpeechBubble message="국가번호를 입력하세요" />
+                    )}
+                    <input
+                      id="countryCode"
+                      type="text"
+                      inputMode="tel"
+                      value={countryCode}
+                      onChange={(e) => setCountryCode(e.target.value)}
+                      onBlur={() =>
+                        setTouched((t) => ({ ...t, countryCode: true }))
+                      }
+                      aria-label="국가번호"
+                      placeholder="+82"
+                      className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-3 text-center text-lg text-slate-800 outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100 sm:h-12 sm:text-base"
+                    />
+                  </div>
                   <div className="min-w-0 flex-1">
-                    {phoneInvalid && <SpeechBubble message="휴대폰 번호를 입력하세요" />}
+                    {phoneInvalid && (
+                      <SpeechBubble message="휴대폰 번호를 입력하세요" />
+                    )}
                     <input
                       id="phone"
                       type="tel"
-                      inputMode="numeric"
+                      inputMode="tel"
                       value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
+                      onChange={(e) =>
+                        setPhone(e.target.value.replace(/[^\d-]/g, ""))
+                      }
                       onBlur={() => setTouched((t) => ({ ...t, phone: true }))}
                       placeholder="10-1234-5678"
                       className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-4 text-lg text-slate-800 outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100 sm:h-12 sm:text-base"

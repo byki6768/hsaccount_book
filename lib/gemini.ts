@@ -37,16 +37,35 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export type GeminiInlineImage = {
+  mimeType: string;
+  /** raw base64 (data URL prefix 없이) */
+  data: string;
+};
+
 /**
  * Gemini 호출: 모델 폴백 + 짧은 재시도
+ * 텍스트만, 또는 텍스트+이미지(Vision)
  */
 export async function generateGeminiText(
   prompt: string,
-  options?: { models?: readonly string[]; retriesPerModel?: number },
+  options?: {
+    models?: readonly string[];
+    retriesPerModel?: number;
+    image?: GeminiInlineImage;
+  },
 ): Promise<string> {
   const models = options?.models ?? GEMINI_MODELS;
   const retriesPerModel = options?.retriesPerModel ?? 2;
   const genAI = new GoogleGenerativeAI(getApiKey());
+
+  const parts: Array<string | { inlineData: { data: string; mimeType: string } }> =
+    options?.image
+      ? [
+          { inlineData: { data: options.image.data, mimeType: options.image.mimeType } },
+          prompt,
+        ]
+      : [prompt];
 
   let lastError: unknown;
 
@@ -55,7 +74,7 @@ export async function generateGeminiText(
 
     for (let attempt = 0; attempt <= retriesPerModel; attempt += 1) {
       try {
-        const result = await model.generateContent(prompt);
+        const result = await model.generateContent(parts);
         return result.response.text();
       } catch (err) {
         lastError = err;
