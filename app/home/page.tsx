@@ -36,19 +36,6 @@ type ChatResponse = {
   } | null;
 };
 
-type ChatResponse = {
-  reply?: string;
-  error?: string;
-  saved?: {
-    type: "expense" | "income";
-    id: number;
-    date: string;
-    amount: number;
-    description: string;
-    categoryName?: string;
-  } | null;
-};
-
 function formatExampleDate(d = new Date()) {
   const yy = String(d.getFullYear()).slice(2);
   const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
