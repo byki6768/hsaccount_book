@@ -11,7 +11,6 @@ import {
   isValidEmail,
   isValidPassword,
   isValidPhone,
-  markRegistered,
   normalizeCountryCode,
   normalizePhone,
   setSession,
@@ -136,7 +135,6 @@ export default function SignupPage() {
       return;
     }
 
-    markRegistered();
     setSession({
       uniqueId: data.unique_id,
       authType: data.auth_type,

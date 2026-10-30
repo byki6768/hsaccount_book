@@ -7,7 +7,6 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { PasswordInput } from "@/components/PasswordInput";
 import { SpeechBubble } from "@/components/SpeechBubble";
 import {
-  clearRegisteredFlag,
   clearSession,
   getLoginId,
   getSession,
@@ -149,7 +148,6 @@ function MyPageContent() {
     }
 
     clearSession();
-    clearRegisteredFlag();
     setMessage("탈퇴가 완료 되었습니다!");
     setSaving(false);
 

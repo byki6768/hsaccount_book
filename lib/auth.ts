@@ -21,8 +21,6 @@ export type SessionUser = {
 };
 
 const SESSION_KEY = "hsaccount_session";
-const REGISTERED_KEY = "hsaccount_registered";
-
 export function generateUniqueId(): string {
   const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
   const alnum =
@@ -84,22 +82,8 @@ export function getSession(): SessionUser | null {
 
 export function setSession(user: SessionUser): void {
   localStorage.setItem(SESSION_KEY, JSON.stringify(user));
-  localStorage.setItem(REGISTERED_KEY, "true");
 }
 
 export function clearSession(): void {
   localStorage.removeItem(SESSION_KEY);
-}
-
-export function hasRegisteredBefore(): boolean {
-  if (typeof window === "undefined") return false;
-  return localStorage.getItem(REGISTERED_KEY) === "true";
-}
-
-export function markRegistered(): void {
-  localStorage.setItem(REGISTERED_KEY, "true");
-}
-
-export function clearRegisteredFlag(): void {
-  localStorage.removeItem(REGISTERED_KEY);
 }

@@ -109,11 +109,6 @@ const mobileSvg = fullBleedSvg(1);
 const maskableSvg = fullBleedSvg(0.78);
 const desktopSvg = roundedSvg();
 
-fs.mkdirSync(path.join(OUT, "source"), { recursive: true });
-fs.writeFileSync(path.join(OUT, "source", "icon-mobile.svg"), mobileSvg);
-fs.writeFileSync(path.join(OUT, "source", "icon-maskable.svg"), maskableSvg);
-fs.writeFileSync(path.join(OUT, "source", "icon-desktop.svg"), desktopSvg);
-
 // 모바일 - 안드로이드
 await png(mobileSvg, 192, "mobile/android/icon-192x192.png");
 await png(mobileSvg, 512, "mobile/android/icon-512x512.png");

@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, type GenerativeModel } from "@google/generative-ai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 /** 우선순위: lite(부하↓) → flash. 503이면 다음 모델로 전환 */
 export const GEMINI_MODELS = [
@@ -6,19 +6,12 @@ export const GEMINI_MODELS = [
   "gemini-flash-latest",
 ] as const;
 
-export const GEMINI_MODEL = GEMINI_MODELS[0];
-
 function getApiKey() {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error("GEMINI_API_KEY가 설정되지 않았습니다");
   }
   return apiKey;
-}
-
-export function getGeminiModel(model: string = GEMINI_MODEL): GenerativeModel {
-  const genAI = new GoogleGenerativeAI(getApiKey());
-  return genAI.getGenerativeModel({ model });
 }
 
 function isRetryableError(err: unknown): boolean {

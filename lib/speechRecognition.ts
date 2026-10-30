@@ -50,16 +50,6 @@ export function isSpeechRecognitionSupported(): boolean {
   return getSpeechRecognitionConstructor() != null;
 }
 
-/** iOS Safari는 continuous/긴 세션이 불안정한 경우가 많음 */
-export function isAppleMobileBrowser(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const ua = navigator.userAgent;
-  const iOS = /iPhone|iPad|iPod/i.test(ua);
-  const iPadOS =
-    navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
-  return iOS || iPadOS;
-}
-
 export function isSecureSpeechContext(): boolean {
   if (typeof window === "undefined") return false;
   return (

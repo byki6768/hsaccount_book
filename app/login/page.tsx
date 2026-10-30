@@ -10,7 +10,6 @@ import {
   isValidEmail,
   isValidPassword,
   isValidPhone,
-  markRegistered,
   Member,
   normalizeCountryCode,
   normalizePhone,
@@ -116,7 +115,6 @@ export default function LoginPage() {
         .eq("unique_id", matched.unique_id);
     }
 
-    markRegistered();
     setSession({
       uniqueId: matched.unique_id,
       authType: matched.auth_type,
