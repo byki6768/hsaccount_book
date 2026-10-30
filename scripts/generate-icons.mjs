@@ -139,5 +139,6 @@ fs.copyFileSync(
   path.join(process.cwd(), "app", "favicon.ico"),
 );
 fs.writeFileSync(path.join(OUT, "desktop", "icon.svg"), desktopSvg);
+fs.writeFileSync(path.join(process.cwd(), "public", "logo.svg"), desktopSvg);
 
 console.log("icons written to", OUT);
