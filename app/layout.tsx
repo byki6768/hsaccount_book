@@ -23,24 +23,30 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
+      { url: "/icons/desktop/favicon.ico", sizes: "16x16 32x32 48x48" },
+      { url: "/icons/desktop/icon.svg", type: "image/svg+xml" },
       {
-        url: "/app-icons/icon-192x192.png",
+        url: "/icons/desktop/favicon-32x32.png",
+        sizes: "32x32",
+        type: "image/png",
+      },
+      {
+        url: "/icons/mobile/android/icon-192x192.png",
         sizes: "192x192",
         type: "image/png",
       },
       {
-        url: "/app-icons/icon-512x512.png",
+        url: "/icons/desktop/icon-512x512.png",
         sizes: "512x512",
         type: "image/png",
       },
     ],
-    apple: [
-      {
-        url: "/app-icons/ios/apple-touch-icon-180x180.png",
-        sizes: "180x180",
-        type: "image/png",
-      },
-    ],
+    shortcut: "/icons/desktop/favicon.ico",
+    apple: [120, 152, 167, 180].map((size) => ({
+      url: `/icons/mobile/ios/apple-touch-icon-${size}x${size}.png`,
+      sizes: `${size}x${size}`,
+      type: "image/png",
+    })),
   },
 };
 
