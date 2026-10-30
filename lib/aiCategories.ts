@@ -149,6 +149,7 @@ ${params.message}
 
 Rules:
 1) If it's a stats/lookup/search question (how much, what, find, search, etc.), never save: status="chat".
+1-1) If it records money RECEIVED (income: salary, allowance/pocket money, bonus, refund, interest, sales, "받았어", "들어왔어", "もらった", "received", "got paid"), it is NOT an expense: status="chat".
 2) If it records an expense and includes an amount, status="ok" and fill date, description, amount, item_name, place, category_major, category_minor.
 3) date is YYYY-MM-DD. "today" = ${params.today}, "yesterday" = one day earlier. If the date is unknown, null.
 ${AMOUNT_RULES}
