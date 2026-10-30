@@ -29,25 +29,85 @@ ${KIND_LABEL[kind]} 내역을 분류할 대분류·소분류 트리를 JSON으�
 형식:
 {"majors":[{"name":"대분류명","minors":["소분류1","소분류2","대분류명(기타)"]}]}`;
 
-  const text = await generateGeminiText(prompt);
-  const tree = extractJson<AiCategoryTree>(text);
+  try {
+    const text = await generateGeminiText(prompt);
+    const tree = extractJson<AiCategoryTree>(text);
 
-  if (!Array.isArray(tree.majors) || tree.majors.length !== 8) {
-    throw new Error(`${KIND_LABEL[kind]} 대분류는 정확히 8개여야 합니다`);
-  }
-
-  for (const major of tree.majors) {
-    if (!major.name?.trim()) throw new Error("빈 대분류 이름이 있습니다");
-    if (!Array.isArray(major.minors) || major.minors.length < 2 || major.minors.length > 4) {
-      throw new Error(`"${major.name}" 소분류는 2~4개여야 합니다`);
+    if (!Array.isArray(tree.majors) || tree.majors.length !== 8) {
+      throw new Error(`${KIND_LABEL[kind]} 대분류는 정확히 8개여야 합니다`);
     }
-    const last = major.minors[major.minors.length - 1] ?? "";
-    if (!last.includes("기타")) {
-      major.minors[major.minors.length - 1] = `${major.name}(기타)`;
-    }
-  }
 
-  return tree;
+    for (const major of tree.majors) {
+      if (!major.name?.trim()) throw new Error("빈 대분류 이름이 있습니다");
+      if (!Array.isArray(major.minors) || major.minors.length < 2 || major.minors.length > 4) {
+        throw new Error(`"${major.name}" 소분류는 2~4개여야 합니다`);
+      }
+    }
+
+    return dedupeCategoryTree(tree);
+  } catch {
+    return dedupeCategoryTree(DEFAULT_TREES[kind]);
+  }
+}
+
+const DEFAULT_TREES: Record<CategoryKind, AiCategoryTree> = {
+  expense: {
+    majors: [
+      { name: "식비", minors: ["외식", "식료품", "식비(기타)"] },
+      { name: "주거/통신", minors: ["관리비", "통신비", "주거/통신(기타)"] },
+      { name: "생활용품", minors: ["생필품", "가전/가구", "생활용품(기타)"] },
+      { name: "의류/미용", minors: ["의류", "미용", "의류/미용(기타)"] },
+      { name: "건강/의료", minors: ["병원", "약국", "건강/의료(기타)"] },
+      { name: "문화/여가", minors: ["여행", "취미", "문화/여가(기타)"] },
+      { name: "교통/차량", minors: ["대중교통", "주유", "교통/차량(기타)"] },
+      { name: "금융/기타", minors: ["보험", "경조사", "금융/기타(기타)"] },
+    ],
+  },
+  income: {
+    majors: [
+      { name: "급여", minors: ["월급", "상여금", "급여(기타)"] },
+      { name: "사업소득", minors: ["매출", "사업소득(기타)"] },
+      { name: "부수입", minors: ["아르바이트", "부수입(기타)"] },
+      { name: "금융소득", minors: ["이자", "배당", "금융소득(기타)"] },
+      { name: "용돈", minors: ["가족", "용돈(기타)"] },
+      { name: "환급", minors: ["세금환급", "환급(기타)"] },
+      { name: "판매", minors: ["중고판매", "판매(기타)"] },
+      { name: "기타수입", minors: ["지원금", "기타수입(기타)"] },
+    ],
+  },
+};
+
+/** 같은 회원·종류 안에서 카테고리 이름이 겹치지 않도록 정리 (DB 유니크 제약) */
+function dedupeCategoryTree(tree: AiCategoryTree): AiCategoryTree {
+  const used = new Set<string>();
+  const unique = (base: string, qualifier: string) => {
+    let name = base.trim();
+    if (used.has(name)) name = `${base.trim()}(${qualifier})`;
+    let n = 2;
+    while (used.has(name)) {
+      name = `${base.trim()}${n}`;
+      n += 1;
+    }
+    used.add(name);
+    return name;
+  };
+
+  const majors = tree.majors.map((major, index) => ({
+    name: unique(major.name, `대분류${index + 1}`),
+    minors: major.minors,
+  }));
+
+  return {
+    majors: majors.map((major) => {
+      const minors = major.minors.map((m) => m.trim()).filter(Boolean);
+      const last = minors[minors.length - 1] ?? "";
+      if (!last.includes("기타")) minors[minors.length - 1] = `${major.name}(기타)`;
+      return {
+        name: major.name,
+        minors: minors.map((m) => unique(m, major.name)),
+      };
+    }),
+  };
 }
 
 /** Gemini가 반환하는 지출 분석 JSON */
