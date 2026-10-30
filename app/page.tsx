@@ -19,14 +19,14 @@ export default function LandingPage() {
       <div className="page-main flex min-h-full w-full flex-col items-center justify-center py-10 sm:py-12">
         <div className="flex w-full flex-1 flex-col items-center justify-center text-center">
           <div className="relative mb-6">
-            <div className="absolute inset-0 scale-110 rounded-full bg-emerald-200/40 blur-2xl" />
+            <div className="absolute inset-0 scale-110 rounded-full bg-pink-200/50 blur-2xl" />
             <Image
               src="/account-book-hero.png"
               alt="나의 AI 가계부 로고"
               width={220}
               height={220}
               priority
-              className="relative h-44 w-44 rounded-[2rem] object-cover shadow-[0_20px_50px_-24px_rgba(16,185,129,0.55)] sm:h-52 sm:w-52"
+              className="relative h-44 w-44 rounded-[2rem] object-cover shadow-[0_20px_50px_-24px_rgba(244,143,177,0.7)] sm:h-52 sm:w-52"
             />
           </div>
           <h1 className="text-4xl font-semibold tracking-tight text-slate-800 sm:text-[2.5rem]">

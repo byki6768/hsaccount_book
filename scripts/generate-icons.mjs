@@ -141,4 +141,10 @@ fs.copyFileSync(
 fs.writeFileSync(path.join(OUT, "desktop", "icon.svg"), desktopSvg);
 fs.writeFileSync(path.join(process.cwd(), "public", "logo.svg"), desktopSvg);
 
+// 첫 화면 대표 이미지 (CSS로 모서리를 둥글게 자르므로 배경을 꽉 채움)
+await sharp(Buffer.from(fullBleedSvg(0.9)), { density: 880 })
+  .resize(880, 880)
+  .png()
+  .toFile(path.join(process.cwd(), "public", "account-book-hero.png"));
+
 console.log("icons written to", OUT);
