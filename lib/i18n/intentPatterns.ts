@@ -40,7 +40,7 @@ export const QUESTION = new RegExp(
 export const SEARCH = new RegExp(
   [
     String.raw`찾아|검색|조회|어디에\s*있|기록\s*있|산\s*적|쓴\s*적|들어\s*온\s*적`,
-    String.raw`\bfind\b|\bsearch\b|\blook\s+up\b|\bdid\s+i\s+(buy|spend)\b`,
+    String.raw`\bfind\b|\bsearch\b|\blook\s+up\b|\bhave\s+i\s+ever\s+(bought|spent|paid)\b`,
     String.raw`探して|検索|調べて|買ったこと|使ったこと`,
   ].join("|"),
   "i",
