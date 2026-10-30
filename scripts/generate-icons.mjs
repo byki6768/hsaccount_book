@@ -136,7 +136,7 @@ for (const size of [64, 128, 256, 512]) {
 writeIco(icoParts, path.join(OUT, "desktop", "favicon.ico"));
 fs.copyFileSync(
   path.join(OUT, "desktop", "favicon.ico"),
-  path.join(process.cwd(), "public", "favicon.ico"),
+  path.join(process.cwd(), "app", "favicon.ico"),
 );
 fs.writeFileSync(path.join(OUT, "desktop", "icon.svg"), desktopSvg);
 
