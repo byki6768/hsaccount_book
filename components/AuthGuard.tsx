@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { clearSession, getSession } from "@/lib/auth";
-import { supabase } from "@/lib/supabase/client";
+import { clearSession, setSession, type SessionUser } from "@/lib/auth";
 
 type AuthGuardProps = {
   children: React.ReactNode;
@@ -15,25 +14,31 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const session = getSession();
-    if (!session) {
-      router.replace("/");
-      return;
-    }
-    setReady(true);
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/auth/me", { cache: "no-store" });
+        if (cancelled) return;
+        if (!res.ok) {
+          clearSession();
+          router.replace("/");
+          return;
+        }
+        setSession((await res.json()) as SessionUser);
+        setReady(true);
+      } catch {
+        if (!cancelled) router.replace("/");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [router, pathname]);
 
   useEffect(() => {
     const onLeave = () => {
-      const session = getSession();
-      if (!session) return;
-
-      // Persist latest activity timestamp for analytics, then end the session.
-      void supabase
-        .from("members")
-        .update({ last_seen_at: new Date().toISOString() })
-        .eq("unique_id", session.uniqueId);
-
+      // Record latest activity on the server, then end the session.
+      navigator.sendBeacon("/api/auth/logout");
       clearSession();
     };
 

@@ -9,6 +9,7 @@ import {
   extractReceiptFromImage,
 } from "@/lib/receiptVision";
 import { recordExpenseLabels, saveExpenseLineItems } from "@/lib/ledgerLabels";
+import { getSessionMember } from "@/lib/session";
 import { createServerSupabase } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
@@ -62,16 +63,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const form = await request.formData();
-    const memberUniqueId = String(form.get("memberUniqueId") ?? "").trim();
-    const file = form.get("image");
-
-    if (!memberUniqueId) {
+    const session = await getSessionMember();
+    if (!session) {
       return NextResponse.json(
         { error: "로그인이 필요합니다", reply: "로그인이 필요해요." },
         { status: 401 },
       );
     }
+    const memberUniqueId = session.uniqueId;
+
+    const form = await request.formData();
+    const file = form.get("image");
+
     if (!(file instanceof File)) {
       return NextResponse.json(
         {

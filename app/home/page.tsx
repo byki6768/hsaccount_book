@@ -6,9 +6,6 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { ReceiptUploadButton } from "@/components/ReceiptUploadButton";
 import { VoiceMicButton } from "@/components/VoiceMicButton";
 import { useSpeechToText } from "@/components/useSpeechToText";
-import { getSession } from "@/lib/auth";
-import { supabase } from "@/lib/supabase/client";
-
 type Expense = {
   id: number;
   date: string;
@@ -232,22 +229,18 @@ function ChatHome() {
   }, [sending]);
 
   const fetchExpenses = useCallback(async () => {
-    const session = getSession();
-    if (!session) return;
-
-    const { data, error: fetchError } = await supabase
-      .from("expenses")
-      .select("id, date, amount, description, created_at")
-      .eq("member_unique_id", session.uniqueId)
-      .order("created_at", { ascending: false });
-
-    if (fetchError) {
-      setError(fetchError.message);
-      return;
+    try {
+      const res = await fetch("/api/ledger?include=expenses", { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "지출 목록을 불러오지 못했습니다");
+        return;
+      }
+      setExpenses(data.expenses ?? []);
+      setError(null);
+    } catch {
+      setError("지출 목록을 불러오지 못했습니다");
     }
-
-    setExpenses(data ?? []);
-    setError(null);
   }, []);
 
   useEffect(() => {
@@ -268,9 +261,6 @@ function ChatHome() {
 
   const sendMessage = useCallback(
     async (rawText: string) => {
-      const session = getSession();
-      if (!session) return;
-
       const text = rawText.trim();
       if (!text || sendingRef.current) return;
 
@@ -298,7 +288,6 @@ function ChatHome() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: text,
-            memberUniqueId: session.uniqueId,
             history: history.slice(0, -1),
           }),
         });
@@ -341,8 +330,7 @@ function ChatHome() {
 
   const handleReceiptFile = useCallback(
     async (file: File) => {
-      const session = getSession();
-      if (!session || sendingRef.current || uploadingReceipt) return;
+      if (sendingRef.current || uploadingReceipt) return;
 
       if (!file.type.startsWith("image/")) {
         setError("이미지 파일만 업로드할 수 있어요.");
@@ -364,7 +352,6 @@ function ChatHome() {
       try {
         const form = new FormData();
         form.append("image", file);
-        form.append("memberUniqueId", session.uniqueId);
 
         const res = await fetch("/api/receipt", {
           method: "POST",

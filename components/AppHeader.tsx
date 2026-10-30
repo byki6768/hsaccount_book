@@ -19,8 +19,9 @@ export function AppHeader({ loggedIn }: AppHeaderProps) {
     setIsLoggedIn(loggedIn ?? Boolean(getSession()));
   }, [loggedIn]);
 
-  const handleAuthClick = () => {
+  const handleAuthClick = async () => {
     if (isLoggedIn) {
+      await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
       clearSession();
       router.replace("/");
       return;

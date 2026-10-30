@@ -19,6 +19,7 @@ import {
   formatSearchHitsForUi,
   searchMemberLedger,
 } from "@/lib/ledgerSearch";
+import { getSessionMember } from "@/lib/session";
 import { createServerSupabase } from "@/lib/supabase/server";
 import { generateGeminiText } from "@/lib/gemini";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -27,7 +28,6 @@ export const runtime = "nodejs";
 
 type ChatBody = {
   message?: string;
-  memberUniqueId?: string;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
 };
 
@@ -137,21 +137,23 @@ export async function POST(request: Request) {
       );
     }
 
+    const session = await getSessionMember();
+    if (!session) {
+      return NextResponse.json(
+        { error: "로그인이 필요합니다", reply: "로그인이 필요해요." },
+        { status: 401 },
+      );
+    }
+    const memberUniqueId = session.uniqueId;
+
     const body = (await request.json()) as ChatBody;
     const message = body.message?.trim();
-    const memberUniqueId = body.memberUniqueId?.trim();
     const history = Array.isArray(body.history) ? body.history : [];
 
     if (!message) {
       return NextResponse.json(
         { error: "메시지를 입력하세요", reply: "메시지를 입력해 주세요." },
         { status: 400 },
-      );
-    }
-    if (!memberUniqueId) {
-      return NextResponse.json(
-        { error: "로그인이 필요합니다", reply: "로그인이 필요해요." },
-        { status: 401 },
       );
     }
 

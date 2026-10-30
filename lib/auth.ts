@@ -14,23 +14,13 @@ export type Member = {
   last_seen_at?: string | null;
 };
 
+/** Display-only copy kept in the browser; the real session is the HTTP-only cookie. */
 export type SessionUser = {
-  uniqueId: string;
   authType: AuthType;
   loginId: string;
 };
 
 const SESSION_KEY = "hsaccount_session";
-export function generateUniqueId(): string {
-  const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  const alnum =
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let id = letters[Math.floor(Math.random() * letters.length)];
-  for (let i = 1; i < 16; i += 1) {
-    id += alnum[Math.floor(Math.random() * alnum.length)];
-  }
-  return id;
-}
 
 export function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
@@ -74,7 +64,9 @@ export function getSession(): SessionUser | null {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
     if (!raw) return null;
-    return JSON.parse(raw) as SessionUser;
+    const parsed = JSON.parse(raw) as Partial<SessionUser>;
+    if (!parsed.authType || typeof parsed.loginId !== "string") return null;
+    return { authType: parsed.authType, loginId: parsed.loginId };
   } catch {
     return null;
   }

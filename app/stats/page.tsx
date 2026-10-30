@@ -7,12 +7,9 @@ import {
   CategoryPeriodPanel,
   OverallPeriodPanel,
 } from "@/components/StatsPeriodViews";
-import { getSession } from "@/lib/auth";
 import type { Category } from "@/lib/categories";
 import type { SearchHit } from "@/lib/ledgerSearch";
 import { todayKeySeoul, type TxRow } from "@/lib/statsPeriod";
-import { supabase } from "@/lib/supabase/client";
-
 type Tab = "all" | "income" | "expense";
 
 export default function StatsPage() {
@@ -40,47 +37,27 @@ function StatsContent() {
   const [searchText, setSearchText] = useState("");
 
   const load = useCallback(async () => {
-    const session = getSession();
-    if (!session) return;
-
     setLoading(true);
     setError(null);
 
     try {
-      const ensureRes = await fetch("/api/categories/ensure", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memberUniqueId: session.uniqueId }),
-      });
+      const ensureRes = await fetch("/api/categories/ensure", { method: "POST" });
       const ensureData = await ensureRes.json();
       if (!ensureRes.ok) {
         throw new Error(ensureData.error || "카테고리를 준비하지 못했습니다");
       }
 
-      const [{ data: categories, error: catError }, { data: expenses }, { data: incomes }] =
-        await Promise.all([
-          supabase
-            .from("categories")
-            .select("*")
-            .eq("member_unique_id", session.uniqueId)
-            .order("sort_order", { ascending: true }),
-          supabase
-            .from("expenses")
-            .select("date, amount, category_id")
-            .eq("member_unique_id", session.uniqueId),
-          supabase
-            .from("incomes")
-            .select("date, amount, category_id")
-            .eq("member_unique_id", session.uniqueId),
-        ]);
+      const ledgerRes = await fetch("/api/ledger", { cache: "no-store" });
+      const ledger = await ledgerRes.json();
+      if (!ledgerRes.ok) {
+        throw new Error(ledger.error || "통계를 불러오지 못했습니다");
+      }
 
-      if (catError) throw new Error(catError.message);
-
-      const cats = (categories ?? []) as Category[];
+      const cats = (ledger.categories ?? []) as Category[];
       setExpenseCategories(cats.filter((c) => c.kind === "expense"));
       setIncomeCategories(cats.filter((c) => c.kind === "income"));
-      setExpenseRows((expenses ?? []) as TxRow[]);
-      setIncomeRows((incomes ?? []) as TxRow[]);
+      setExpenseRows((ledger.expenses ?? []) as TxRow[]);
+      setIncomeRows((ledger.incomes ?? []) as TxRow[]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "통계를 불러오지 못했습니다");
     } finally {
@@ -94,8 +71,6 @@ function StatsContent() {
 
   const runSearch = async (e?: FormEvent) => {
     e?.preventDefault();
-    const session = getSession();
-    if (!session) return;
     const q = searchQuery.trim();
     if (!q) return;
 
@@ -105,10 +80,7 @@ function StatsContent() {
       const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          query: q,
-          memberUniqueId: session.uniqueId,
-        }),
+        body: JSON.stringify({ query: q }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "검색에 실패했습니다");

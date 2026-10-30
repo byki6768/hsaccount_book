@@ -1,19 +1,19 @@
 import { NextResponse } from "next/server";
 import { ensureAiCategoryTrees } from "@/lib/aiCategoryService";
+import { getSessionMember } from "@/lib/session";
 import { createServerSupabase } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
-export async function POST(request: Request) {
+export async function POST() {
   try {
-    const body = (await request.json()) as { memberUniqueId?: string };
-    const memberUniqueId = body.memberUniqueId?.trim();
-    if (!memberUniqueId) {
+    const session = await getSessionMember();
+    if (!session) {
       return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
     }
 
     const supabase = createServerSupabase();
-    const result = await ensureAiCategoryTrees(supabase, memberUniqueId);
+    const result = await ensureAiCategoryTrees(supabase, session.uniqueId);
 
     return NextResponse.json({
       expenseTree: result.expenseTree,

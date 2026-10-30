@@ -1,4 +1,6 @@
+import "server-only";
 import bcrypt from "bcryptjs";
+import { randomInt } from "crypto";
 
 const SALT_ROUNDS = 10;
 
@@ -23,4 +25,15 @@ export async function verifyPassword(
 
 export function isBcryptHash(value: string | null | undefined): boolean {
   return Boolean(value && value.startsWith("$2"));
+}
+
+export function generateUniqueId(): string {
+  const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  const alnum =
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let id = letters[randomInt(letters.length)];
+  for (let i = 1; i < 16; i += 1) {
+    id += alnum[randomInt(alnum.length)];
+  }
+  return id;
 }

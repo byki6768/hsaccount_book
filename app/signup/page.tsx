@@ -5,18 +5,13 @@ import { useRouter } from "next/navigation";
 import { PasswordInput } from "@/components/PasswordInput";
 import { SpeechBubble } from "@/components/SpeechBubble";
 import {
-  generateUniqueId,
-  getLoginId,
   isValidCountryCode,
   isValidEmail,
   isValidPassword,
   isValidPhone,
-  normalizeCountryCode,
-  normalizePhone,
   setSession,
+  type SessionUser,
 } from "@/lib/auth";
-import { hashPassword } from "@/lib/password";
-import { supabase } from "@/lib/supabase/client";
 
 type SignupMode = "select" | "email" | "phone";
 
@@ -67,81 +62,30 @@ export default function SignupPage() {
 
     setSubmitting(true);
 
-    let uniqueId = generateUniqueId();
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const { data: existing } = await supabase
-        .from("members")
-        .select("id")
-        .eq("unique_id", uniqueId)
-        .maybeSingle();
-      if (!existing) break;
-      uniqueId = generateUniqueId();
-    }
+    try {
+      const res = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          mode === "email"
+            ? { mode, email, password }
+            : { mode, countryCode, phone, password },
+        ),
+      });
+      const data = await res.json();
 
-    const hashedPassword = await hashPassword(password);
-    const normalizedCode = normalizeCountryCode(countryCode) || "82";
-    const phoneDigits = normalizePhone(phone);
-
-    if (mode === "phone") {
-      const { data: dup } = await supabase
-        .from("members")
-        .select("id")
-        .eq("auth_type", "phone")
-        .eq("country_code", normalizedCode)
-        .eq("phone", phoneDigits)
-        .eq("is_active", true)
-        .maybeSingle();
-      if (dup) {
-        setFormError("이미 등록된 계정입니다. 로그인해 주세요.");
-        setSubmitting(false);
+      if (!res.ok) {
+        setFormError(data.error || "가입에 실패했습니다");
         return;
       }
-    }
 
-    const payload =
-      mode === "email"
-        ? {
-            unique_id: uniqueId,
-            auth_type: "email",
-            email: email.trim().toLowerCase(),
-            country_code: null as string | null,
-            phone: null as string | null,
-            password: hashedPassword,
-            is_active: true,
-          }
-        : {
-            unique_id: uniqueId,
-            auth_type: "phone",
-            email: null as string | null,
-            country_code: normalizedCode,
-            phone: phoneDigits,
-            password: hashedPassword,
-            is_active: true,
-          };
-
-    const { data, error } = await supabase
-      .from("members")
-      .insert(payload as Record<string, unknown>)
-      .select("unique_id, auth_type, email, country_code, phone")
-      .single();
-
-    if (error) {
-      setFormError(
-        error.code === "23505"
-          ? "이미 등록된 계정입니다. 로그인해 주세요."
-          : error.message,
-      );
+      setSession(data as SessionUser);
+      router.replace("/home");
+    } catch {
+      setFormError("가입에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
       setSubmitting(false);
-      return;
     }
-
-    setSession({
-      uniqueId: data.unique_id,
-      authType: data.auth_type,
-      loginId: getLoginId(data),
-    });
-    setSubmitting(false);
-    router.replace("/home");
   };
 
   return (

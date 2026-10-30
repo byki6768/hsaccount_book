@@ -5,18 +5,13 @@ import { useRouter } from "next/navigation";
 import { PasswordInput } from "@/components/PasswordInput";
 import { SpeechBubble } from "@/components/SpeechBubble";
 import {
-  getLoginId,
   isValidCountryCode,
   isValidEmail,
   isValidPassword,
   isValidPhone,
-  Member,
-  normalizeCountryCode,
-  normalizePhone,
   setSession,
+  type SessionUser,
 } from "@/lib/auth";
-import { hashPassword, isBcryptHash, verifyPassword } from "@/lib/password";
-import { supabase } from "@/lib/supabase/client";
 
 type LoginMode = "select" | "email" | "phone";
 
@@ -72,56 +67,34 @@ export default function LoginPage() {
 
     setLoading(true);
 
-    let query = supabase.from("members").select("*").eq("is_active", true);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          mode === "email"
+            ? { mode, email, password }
+            : { mode, countryCode, phone, password },
+        ),
+      });
+      const data = await res.json();
 
-    if (mode === "email") {
-      query = query.eq("email", email.trim().toLowerCase());
-    } else {
-      const code = normalizeCountryCode(countryCode);
-      const phoneDigits = normalizePhone(phone);
-      query = query
-        .eq("auth_type", "phone")
-        .eq("country_code", code)
-        .eq("phone", phoneDigits);
-    }
+      if (res.status === 404 && data.code === "unknown_id") {
+        setUnknownId(true);
+        return;
+      }
+      if (!res.ok) {
+        setFormError(data.error || "로그인에 실패했습니다");
+        return;
+      }
 
-    const { data, error: fetchError } = await query.maybeSingle();
-
-    if (fetchError) {
-      setFormError(fetchError.message);
+      setSession(data as SessionUser);
+      router.replace("/home");
+    } catch {
+      setFormError("로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const matched = data as Member | null;
-
-    if (!matched) {
-      setUnknownId(true);
-      setLoading(false);
-      return;
-    }
-
-    if (!(await verifyPassword(password, matched.password))) {
-      setFormError("비밀번호가 올바르지 않습니다");
-      setLoading(false);
-      return;
-    }
-
-    if (matched.password && !isBcryptHash(matched.password)) {
-      const hashed = await hashPassword(password);
-      await supabase
-        .from("members")
-        .update({ password: hashed })
-        .eq("unique_id", matched.unique_id);
-    }
-
-    setSession({
-      uniqueId: matched.unique_id,
-      authType: matched.auth_type,
-      loginId: getLoginId(matched),
-    });
-    setLoading(false);
-    router.replace("/home");
   };
 
   return (

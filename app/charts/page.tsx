@@ -16,10 +16,8 @@ import {
 } from "recharts";
 import { AppHeader } from "@/components/AppHeader";
 import { AuthGuard } from "@/components/AuthGuard";
-import { getSession } from "@/lib/auth";
 import type { Category, CategoryStat } from "@/lib/categories";
 import { buildMajorStats, buildMinorStats } from "@/lib/categoryService";
-import { supabase } from "@/lib/supabase/client";
 
 type TxRow = {
   date: string;
@@ -137,42 +135,18 @@ function ChartsContent() {
   const theme = tab === "expense" ? EXPENSE_THEME : INCOME_THEME;
 
   const load = useCallback(async () => {
-    const session = getSession();
-    if (!session) return;
-
     setLoading(true);
     setError(null);
 
     try {
-      const [
-        { data: expenses, error: expenseError },
-        { data: incomes, error: incomeError },
-        { data: cats, error: catError },
-      ] = await Promise.all([
-        supabase
-          .from("expenses")
-          .select("date, amount, category_id")
-          .eq("member_unique_id", session.uniqueId)
-          .order("date", { ascending: true }),
-        supabase
-          .from("incomes")
-          .select("date, amount, category_id")
-          .eq("member_unique_id", session.uniqueId)
-          .order("date", { ascending: true }),
-        supabase
-          .from("categories")
-          .select("*")
-          .eq("member_unique_id", session.uniqueId)
-          .order("sort_order", { ascending: true }),
-      ]);
+      const res = await fetch("/api/ledger", { cache: "no-store" });
+      const ledger = await res.json();
+      if (!res.ok) throw new Error(ledger.error || "차트를 불러오지 못했습니다");
 
-      if (expenseError) throw new Error(expenseError.message);
-      if (incomeError) throw new Error(incomeError.message);
-      if (catError) throw new Error(catError.message);
-
-      const allCats = (cats ?? []) as Category[];
-      setExpenseRows((expenses ?? []) as TxRow[]);
-      setIncomeRows((incomes ?? []) as TxRow[]);
+      const byDate = (a: TxRow, b: TxRow) => a.date.localeCompare(b.date);
+      const allCats = (ledger.categories ?? []) as Category[];
+      setExpenseRows([...((ledger.expenses ?? []) as TxRow[])].sort(byDate));
+      setIncomeRows([...((ledger.incomes ?? []) as TxRow[])].sort(byDate));
       setExpenseCategories(allCats.filter((c) => c.kind === "expense"));
       setIncomeCategories(allCats.filter((c) => c.kind === "income"));
     } catch (err) {

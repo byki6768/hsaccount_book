@@ -8,21 +8,12 @@ import { PasswordInput } from "@/components/PasswordInput";
 import { SpeechBubble } from "@/components/SpeechBubble";
 import {
   clearSession,
-  getLoginId,
-  getSession,
   isValidPassword,
   setSession,
-  type AuthType,
+  type SessionUser,
 } from "@/lib/auth";
-import { hashPassword } from "@/lib/password";
-import { supabase } from "@/lib/supabase/client";
 
-type Profile = {
-  auth_type: AuthType;
-  email: string | null;
-  country_code: string | null;
-  phone: string | null;
-};
+type Profile = SessionUser;
 
 export default function MyPage() {
   return (
@@ -50,36 +41,28 @@ function MyPageContent() {
     touched.confirm && confirmPassword.length > 0 && newPassword !== confirmPassword;
 
   const loadProfile = useCallback(async () => {
-    const session = getSession();
-    if (!session) return;
+    try {
+      const res = await fetch("/api/account", { cache: "no-store" });
+      const data = await res.json();
 
-    const { data, error: fetchError } = await supabase
-      .from("members")
-      .select("auth_type, email, country_code, phone")
-      .eq("unique_id", session.uniqueId)
-      .eq("is_active", true)
-      .maybeSingle();
+      if (res.status === 401) {
+        clearSession();
+        router.replace("/");
+        return;
+      }
+      if (!res.ok) {
+        setError(data.error || "계정 정보를 불러오지 못했습니다");
+        return;
+      }
 
-    if (fetchError) {
-      setError(fetchError.message);
+      const nextProfile = data as Profile;
+      setProfile(nextProfile);
+      setSession(nextProfile);
+    } catch {
+      setError("계정 정보를 불러오지 못했습니다");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    if (!data) {
-      clearSession();
-      router.replace("/");
-      return;
-    }
-
-    const nextProfile = data as Profile;
-    setProfile(nextProfile);
-    setSession({
-      uniqueId: session.uniqueId,
-      authType: nextProfile.auth_type,
-      loginId: getLoginId(nextProfile),
-    });
-    setLoading(false);
   }, [router]);
 
   useEffect(() => {
@@ -92,21 +75,20 @@ function MyPageContent() {
     setError(null);
     setMessage(null);
 
-    const session = getSession();
-    if (!isValidPassword(newPassword) || newPassword !== confirmPassword || !session) {
+    if (!isValidPassword(newPassword) || newPassword !== confirmPassword) {
       return;
     }
 
     setSaving(true);
-    const hashed = await hashPassword(newPassword);
-    const { error: updateError } = await supabase
-      .from("members")
-      .update({ password: hashed })
-      .eq("unique_id", session.uniqueId)
-      .eq("is_active", true);
+    const res = await fetch("/api/account", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password: newPassword }),
+    }).catch(() => null);
 
-    if (updateError) {
-      setError(updateError.message);
+    if (!res?.ok) {
+      const data = res ? await res.json().catch(() => ({})) : {};
+      setError(data.error || "비밀번호를 수정하지 못했습니다");
       setSaving(false);
       return;
     }
@@ -125,24 +107,12 @@ function MyPageContent() {
       return;
     }
 
-    const session = getSession();
-    if (!session) return;
-
     setSaving(true);
-    const { error: updateError } = await supabase
-      .from("members")
-      .update({
-        email: null,
-        phone: null,
-        country_code: null,
-        password: null,
-        is_active: false,
-        withdrawn_at: new Date().toISOString(),
-      })
-      .eq("unique_id", session.uniqueId);
+    const res = await fetch("/api/account", { method: "DELETE" }).catch(() => null);
 
-    if (updateError) {
-      setError(updateError.message);
+    if (!res?.ok) {
+      const data = res ? await res.json().catch(() => ({})) : {};
+      setError(data.error || "탈퇴 처리에 실패했습니다");
       setSaving(false);
       return;
     }
@@ -171,7 +141,7 @@ function MyPageContent() {
               <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
                 <p className="text-sm font-medium text-slate-500">ID</p>
                 <p className="mt-1 break-all text-lg font-semibold text-slate-800">
-                  {getLoginId(profile)}
+                  {profile.loginId}
                 </p>
               </div>
 
