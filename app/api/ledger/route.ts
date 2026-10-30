@@ -11,7 +11,7 @@ const PARTS: Part[] = ["expenses", "incomes", "categories"];
 export async function GET(request: Request) {
   const session = await getSessionMember();
   if (!session) {
-    return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
+    return NextResponse.json({ error: "Login required" }, { status: 401 });
   }
 
   const requested = new URL(request.url).searchParams.get("include");

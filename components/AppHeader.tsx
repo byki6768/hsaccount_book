@@ -4,7 +4,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { clearSession, getSession } from "@/lib/auth";
+import { useI18n } from "@/lib/i18n/useI18n";
 
 type AppHeaderProps = {
   loggedIn?: boolean;
@@ -13,6 +15,7 @@ type AppHeaderProps = {
 export function AppHeader({ loggedIn }: AppHeaderProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const { m } = useI18n();
   const [isLoggedIn, setIsLoggedIn] = useState(Boolean(loggedIn));
 
   useEffect(() => {
@@ -48,39 +51,42 @@ export function AppHeader({ loggedIn }: AppHeaderProps) {
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200/70 bg-white/90 backdrop-blur-md">
       <div className="page-shell flex flex-col gap-3 py-3 sm:py-3.5">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center justify-between gap-2 sm:gap-3">
           <Link
             href="/home"
-            className="flex min-w-0 items-center gap-3 sm:gap-3.5"
+            className="flex min-w-0 items-center gap-2.5 sm:gap-3.5"
           >
             <Image
               src="/logo.svg"
-              alt="AI 가계부 챗봇 로고"
+              alt={m.common.logoAlt}
               width={56}
               height={56}
               priority
               unoptimized
-              className="h-12 w-12 shrink-0 rounded-2xl sm:h-14 sm:w-14"
+              className="h-11 w-11 shrink-0 rounded-2xl sm:h-14 sm:w-14"
             />
-            <span className="truncate text-2xl font-bold tracking-tight text-slate-800 sm:text-3xl">
-              AI 가계부 챗봇
+            <span className="truncate text-xl font-bold tracking-tight text-slate-800 sm:text-3xl">
+              {m.common.headerTitle}
             </span>
           </Link>
 
-          <button
-            type="button"
-            onClick={handleAuthClick}
-            className="shrink-0 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 sm:px-3.5 sm:text-sm"
-          >
-            {isLoggedIn ? "로그아웃" : "로그인"}
-          </button>
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            {isLoggedIn && <LanguageSwitcher variant="compact" />}
+            <button
+              type="button"
+              onClick={handleAuthClick}
+              className="shrink-0 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-emerald-700 sm:px-3.5 sm:text-sm"
+            >
+              {isLoggedIn ? m.common.logout : m.common.login}
+            </button>
+          </div>
         </div>
 
         {isLoggedIn && (
           <nav className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            {navItem("/stats", "나의 지출·수입 보기")}
-            {navItem("/charts", "통계 보기")}
-            {navItem("/mypage", "마이 페이지")}
+            {navItem("/stats", m.nav.stats)}
+            {navItem("/charts", m.nav.charts)}
+            {navItem("/mypage", m.nav.mypage)}
           </nav>
         )}
       </div>

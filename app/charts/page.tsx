@@ -18,6 +18,8 @@ import { AppHeader } from "@/components/AppHeader";
 import { AuthGuard } from "@/components/AuthGuard";
 import type { Category, CategoryStat } from "@/lib/categories";
 import { buildMajorStats, buildMinorStats } from "@/lib/categoryService";
+import { formatAxisTick, formatMoney } from "@/lib/i18n/format";
+import { useI18n } from "@/lib/i18n/useI18n";
 
 type TxRow = {
   date: string;
@@ -84,10 +86,6 @@ const INCOME_THEME: Theme = {
   selectFocus: "focus:border-[#8eb6d9] focus:ring-[#d6e8f5]",
 };
 
-function formatWon(value: number) {
-  return `${value.toLocaleString("ko-KR")}원`;
-}
-
 function monthKey(date: string) {
   return date.slice(0, 7);
 }
@@ -122,6 +120,7 @@ export default function ChartsPage() {
 }
 
 function ChartsContent() {
+  const { m } = useI18n();
   const [tab, setTab] = useState<KindTab>("expense");
   const [expenseRows, setExpenseRows] = useState<TxRow[]>([]);
   const [incomeRows, setIncomeRows] = useState<TxRow[]>([]);
@@ -141,7 +140,7 @@ function ChartsContent() {
     try {
       const res = await fetch("/api/ledger", { cache: "no-store" });
       const ledger = await res.json();
-      if (!res.ok) throw new Error(ledger.error || "차트를 불러오지 못했습니다");
+      if (!res.ok) throw new Error(m.charts.loadFailed);
 
       const byDate = (a: TxRow, b: TxRow) => a.date.localeCompare(b.date);
       const allCats = (ledger.categories ?? []) as Category[];
@@ -150,11 +149,11 @@ function ChartsContent() {
       setExpenseCategories(allCats.filter((c) => c.kind === "expense"));
       setIncomeCategories(allCats.filter((c) => c.kind === "income"));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "차트를 불러오지 못했습니다");
+      setError(err instanceof Error ? err.message : m.charts.loadFailed);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [m]);
 
   useEffect(() => {
     load();
@@ -164,9 +163,9 @@ function ChartsContent() {
     <div className={`min-h-full transition-colors ${theme.pageBg}`}>
       <AppHeader loggedIn />
       <div className="page-main flex w-full flex-col py-5 sm:py-6">
-        <h1 className="text-2xl font-semibold text-slate-800 sm:text-3xl">통계 보기</h1>
+        <h1 className="text-2xl font-semibold text-slate-800 sm:text-3xl">{m.charts.title}</h1>
         <p className="mt-1 text-sm text-slate-500">
-          지출·수입을 월별·카테고리별로 따로 확인합니다
+          {m.charts.subtitle}
         </p>
 
         <div className="mt-5 grid grid-cols-2 gap-2 rounded-2xl bg-white/80 p-1 shadow-sm ring-1 ring-slate-200/70">
@@ -177,7 +176,7 @@ function ChartsContent() {
               tab === "expense" ? theme.tabActive : "text-slate-600 hover:bg-slate-50"
             }`}
           >
-            지출 통계
+            {m.charts.expenseTab}
           </button>
           <button
             type="button"
@@ -188,12 +187,12 @@ function ChartsContent() {
                 : "text-slate-600 hover:bg-slate-50"
             }`}
           >
-            수입 통계
+            {m.charts.incomeTab}
           </button>
         </div>
 
         {loading ? (
-          <p className="mt-10 text-center text-slate-400">차트 준비 중...</p>
+          <p className="mt-10 text-center text-slate-400">{m.charts.loading}</p>
         ) : error ? (
           <div className="mt-6 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
             {error}
@@ -202,7 +201,7 @@ function ChartsContent() {
               onClick={load}
               className="mt-2 block font-semibold underline"
             >
-              다시 시도
+              {m.common.retry}
             </button>
           </div>
         ) : tab === "expense" ? (
@@ -213,8 +212,8 @@ function ChartsContent() {
             categories={expenseCategories}
             selectedMonth={expenseMonth}
             onSelectedMonth={setExpenseMonth}
-            emptyText="아직 저장된 지출이 없습니다"
-            barTitle="월별 총 지출"
+            emptyText={m.charts.noExpenses}
+            barTitle={m.charts.monthlyExpense}
           />
         ) : (
           <KindCharts
@@ -224,8 +223,8 @@ function ChartsContent() {
             categories={incomeCategories}
             selectedMonth={incomeMonth}
             onSelectedMonth={setIncomeMonth}
-            emptyText="아직 저장된 수입이 없습니다"
-            barTitle="월별 총 수입"
+            emptyText={m.charts.noIncome}
+            barTitle={m.charts.monthlyIncome}
           />
         )}
       </div>
@@ -252,6 +251,7 @@ function KindCharts({
   emptyText: string;
   barTitle: string;
 }) {
+  const { m, locale } = useI18n();
   const monthlyData = useMemo(() => buildMonthlyTotals(rows), [rows]);
 
   const filteredRows = useMemo(() => {
@@ -260,12 +260,18 @@ function KindCharts({
   }, [rows, selectedMonth]);
 
   const majorStats = useMemo(
-    () => buildMajorStats(filteredRows, categories).filter((s) => s.amount > 0),
-    [filteredRows, categories],
+    () =>
+      buildMajorStats(filteredRows, categories, m.common.uncategorized).filter(
+        (s) => s.amount > 0,
+      ),
+    [filteredRows, categories, m],
   );
   const minorStats = useMemo(
-    () => buildMinorStats(filteredRows, categories).filter((s) => s.amount > 0),
-    [filteredRows, categories],
+    () =>
+      buildMinorStats(filteredRows, categories, m.common.uncategorized).filter(
+        (s) => s.amount > 0,
+      ),
+    [filteredRows, categories, m],
   );
 
   const periodTotal = filteredRows.reduce((sum, row) => sum + row.amount, 0);
@@ -287,9 +293,9 @@ function KindCharts({
         <div className="mb-4 flex items-baseline justify-between gap-3">
           <h2 className="text-base font-semibold text-slate-800">{barTitle}</h2>
           <p className="text-sm text-slate-500">
-            전체{" "}
+            {m.charts.total}{" "}
             <span className={`font-semibold ${theme.accentText}`}>
-              {formatWon(allTotal)}
+              {formatMoney(allTotal, locale)}
             </span>
           </p>
         </div>
@@ -301,12 +307,10 @@ function KindCharts({
               <YAxis
                 width={52}
                 tick={{ fontSize: 11, fill: "#7a746c" }}
-                tickFormatter={(v) =>
-                  v >= 10000 ? `${Math.round(Number(v) / 10000)}만` : String(v)
-                }
+                tickFormatter={(v) => formatAxisTick(Number(v), locale)}
               />
               <Tooltip
-                formatter={(value) => formatWon(Number(value ?? 0))}
+                formatter={(value) => formatMoney(Number(value ?? 0), locale)}
                 labelFormatter={(_, payload) =>
                   String(payload?.[0]?.payload?.month ?? "")
                 }
@@ -318,13 +322,13 @@ function KindCharts({
       </section>
 
       <div className="flex flex-wrap items-center gap-2">
-        <label className="text-sm font-medium text-slate-600">원 그래프 기간</label>
+        <label className="text-sm font-medium text-slate-600">{m.charts.piePeriod}</label>
         <select
           value={selectedMonth}
           onChange={(e) => onSelectedMonth(e.target.value)}
           className={`h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:ring-4 ${theme.selectFocus}`}
         >
-          <option value="all">전체 기간</option>
+          <option value="all">{m.charts.allPeriods}</option>
           {[...monthlyData].reverse().map((item) => (
             <option key={item.month} value={item.month}>
               {item.month}
@@ -332,20 +336,20 @@ function KindCharts({
           ))}
         </select>
         <span className="text-sm text-slate-500">
-          합계{" "}
+          {m.charts.sum}{" "}
           <span className={`font-semibold ${theme.accentText}`}>
-            {formatWon(periodTotal)}
+            {formatMoney(periodTotal, locale)}
           </span>
         </span>
       </div>
 
       <PieSection
-        title={`${kind === "expense" ? "지출" : "수입"} 카테고리 대분류`}
+        title={kind === "expense" ? m.charts.expenseMajor : m.charts.incomeMajor}
         stats={majorStats}
         theme={theme}
       />
       <PieSection
-        title={`${kind === "expense" ? "지출" : "수입"} 카테고리 소분류`}
+        title={kind === "expense" ? m.charts.expenseMinor : m.charts.incomeMinor}
         stats={minorStats}
         theme={theme}
       />
@@ -362,6 +366,7 @@ function PieSection({
   stats: CategoryStat[];
   theme: Theme;
 }) {
+  const { m, locale } = useI18n();
   const data = stats.map((item) => ({
     name: item.name,
     value: item.amount,
@@ -375,7 +380,7 @@ function PieSection({
       <h2 className="mb-3 text-base font-semibold text-slate-800">{title}</h2>
       {data.length === 0 ? (
         <p className="rounded-xl border border-dashed border-slate-200 px-3 py-8 text-center text-sm text-slate-400">
-          표시할 데이터가 없습니다
+          {m.charts.noData}
         </p>
       ) : (
         <div className="h-72 w-full sm:h-80">
@@ -403,7 +408,7 @@ function PieSection({
               </Pie>
               <Tooltip
                 formatter={(value, name, item) => [
-                  `${formatWon(Number(value ?? 0))} (${item?.payload?.count ?? 0}건)`,
+                  `${formatMoney(Number(value ?? 0), locale)} (${m.common.itemCount(Number(item?.payload?.count ?? 0))})`,
                   String(name ?? ""),
                 ]}
               />

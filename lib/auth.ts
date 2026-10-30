@@ -1,3 +1,5 @@
+import type { Locale } from "@/lib/i18n/locales";
+
 export type AuthType = "email" | "phone";
 
 export type Member = {
@@ -12,6 +14,7 @@ export type Member = {
   created_at: string;
   withdrawn_at: string | null;
   last_seen_at?: string | null;
+  language?: string | null;
 };
 
 /** Display-only copy kept in the browser; the real session is the HTTP-only cookie. */
@@ -19,6 +22,9 @@ export type SessionUser = {
   authType: AuthType;
   loginId: string;
 };
+
+/** What auth/account APIs return: the session user plus their saved UI language. */
+export type SessionInfo = SessionUser & { language: Locale };
 
 const SESSION_KEY = "hsaccount_session";
 
@@ -35,7 +41,7 @@ export function isValidPhone(value: string): boolean {
   return /^\d{9,11}$/.test(digits);
 }
 
-/** 국가번호: 숫자만 저장 (예: "+ 82" → "82") */
+/** Country code: digits only (e.g. "+ 82" -> "82") */
 export function normalizeCountryCode(value: string): string {
   return value.replace(/\D/g, "");
 }
@@ -44,12 +50,12 @@ export function isValidCountryCode(value: string): boolean {
   return /^\d{1,4}$/.test(normalizeCountryCode(value));
 }
 
-/** 휴대폰 번호: 하이픈·공백 등 무시하고 숫자만 */
+/** Mobile number: digits only, ignoring hyphens and spaces */
 export function normalizePhone(value: string): string {
   return value.replace(/\D/g, "");
 }
 
-/** 표시용 로그인 ID (국가번호-휴대폰번호) */
+/** Display login ID (country code-mobile number) */
 export function getLoginId(member: Pick<Member, "auth_type" | "email" | "country_code" | "phone">): string {
   if (member.auth_type === "email") {
     return member.email ?? "";

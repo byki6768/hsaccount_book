@@ -37,4 +37,4 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 # hsaccount_book
 
 
-# https://hsaccount-book.vercel.app 로 배포중.
+# Deployed at https://hsaccount-book.vercel.app

@@ -2,12 +2,15 @@ import "server-only";
 import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 import type { AuthType, SessionUser } from "@/lib/auth";
+import { DEFAULT_LOCALE, isLocale, type Locale } from "@/lib/i18n/locales";
 import { createServerSupabase } from "@/lib/supabase/server";
 
 const COOKIE_NAME = "hs_session";
 const MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 
 export type ServerSession = SessionUser & { uniqueId: string };
+
+export type ServerMember = ServerSession & { language: Locale };
 
 type Payload = {
   uid: string;
@@ -19,7 +22,7 @@ type Payload = {
 function getSecret(): string {
   const secret = process.env.SESSION_SECRET;
   if (!secret || secret.length < 32) {
-    throw new Error("SESSION_SECRET 환경변수(32자 이상)가 설정되지 않았습니다");
+    throw new Error("SESSION_SECRET (32+ characters) is not set");
   }
   return secret;
 }
@@ -81,17 +84,18 @@ export async function readSessionCookie(): Promise<ServerSession | null> {
 }
 
 /** Signed cookie + member still active. Returns null when the caller is not logged in. */
-export async function getSessionMember(): Promise<ServerSession | null> {
+export async function getSessionMember(): Promise<ServerMember | null> {
   const session = await readSessionCookie();
   if (!session) return null;
 
   const supabase = createServerSupabase();
   const { data } = await supabase
     .from("members")
-    .select("unique_id")
+    .select("unique_id, language")
     .eq("unique_id", session.uniqueId)
     .eq("is_active", true)
     .maybeSingle();
 
-  return data ? session : null;
+  if (!data) return null;
+  return { ...session, language: isLocale(data.language) ? data.language : DEFAULT_LOCALE };
 }

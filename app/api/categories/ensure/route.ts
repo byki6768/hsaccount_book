@@ -9,11 +9,11 @@ export async function POST() {
   try {
     const session = await getSessionMember();
     if (!session) {
-      return NextResponse.json({ error: "로그인이 필요합니다" }, { status: 401 });
+      return NextResponse.json({ error: "Login required" }, { status: 401 });
     }
 
     const supabase = createServerSupabase();
-    const result = await ensureAiCategoryTrees(supabase, session.uniqueId);
+    const result = await ensureAiCategoryTrees(supabase, session.uniqueId, session.language);
 
     return NextResponse.json({
       expenseTree: result.expenseTree,
@@ -23,7 +23,7 @@ export async function POST() {
     });
   } catch (err) {
     const message =
-      err instanceof Error ? err.message : "카테고리 생성에 실패했습니다";
+      err instanceof Error ? err.message : "Category generation failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

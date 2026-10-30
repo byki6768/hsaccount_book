@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import {
   analyzeExpenseMessage,
   answerStatsQuestion,
-  formatExpenseConfirm,
+  formatSavedConfirm,
   parseLedgerMessage,
   type LedgerRowForAi,
 } from "@/lib/aiCategories";
@@ -10,25 +10,36 @@ import {
   ensureAiCategoryTrees,
   findMinorCategoryId,
 } from "@/lib/aiCategoryService";
-import { classifyChatIntent, extractSearchQuery } from "@/lib/chatIntent";
+import {
+  classifyChatIntent,
+  extractSearchQuery,
+  looksLikeStatsQuestion,
+  mentionsLedgerTopic,
+} from "@/lib/chatIntent";
 import type { Category } from "@/lib/categories";
 import { isMajor, isMinor } from "@/lib/categories";
+import { GeminiBusyError, generateGeminiText } from "@/lib/gemini";
+import { RELATIVE_DAYS } from "@/lib/i18n/intentPatterns";
+import { DEFAULT_LOCALE, LOCALE_ENGLISH_NAMES, type Locale } from "@/lib/i18n/locales";
+import { getMessages } from "@/lib/i18n/messages";
 import { recordExpenseLabels, recordIncomeLabels } from "@/lib/ledgerLabels";
 import {
   formatSearchHitsForAi,
   formatSearchHitsForUi,
   searchMemberLedger,
+  type SearchHit,
 } from "@/lib/ledgerSearch";
 import { getSessionMember } from "@/lib/session";
 import { createServerSupabase } from "@/lib/supabase/server";
-import { generateGeminiText } from "@/lib/gemini";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
+type ChatTurn = { role: "user" | "assistant"; content: string };
+
 type ChatBody = {
   message?: string;
-  history?: Array<{ role: "user" | "assistant"; content: string }>;
+  history?: ChatTurn[];
 };
 
 function todayInSeoul() {
@@ -56,8 +67,9 @@ function normalizeDate(raw: string | null, today: string): string | null {
     const [, yy, mm, dd] = loose;
     return `${yy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
   }
-  if (trimmed === "오늘") return today;
-  if (trimmed === "어제") return yesterdayInSeoul(today);
+  const lower = trimmed.toLowerCase();
+  if (RELATIVE_DAYS.today.includes(lower)) return today;
+  if (RELATIVE_DAYS.yesterday.includes(lower)) return yesterdayInSeoul(today);
   return null;
 }
 
@@ -125,26 +137,40 @@ async function loadLedgerForAi(
   };
 }
 
-export async function POST(request: Request) {
-  try {
-    if (!process.env.GEMINI_API_KEY) {
-      return NextResponse.json(
-        {
-          error: "GEMINI_API_KEY가 설정되지 않았습니다. .env.local을 확인해 주세요.",
-          reply: "지금은 AI 설정에 문제가 있어요. 잠시 후 다시 시도해 주세요.",
-        },
-        { status: 500 },
-      );
-    }
+async function answerSearch(query: string, hits: SearchHit[], locale: Locale): Promise<string> {
+  const reply = await generateGeminiText(
+    `You are a friendly household-ledger search assistant. Answer in ${LOCALE_ENGLISH_NAMES[locale]}.
+Never mention member identifiers or unique IDs.
+Search query: ${query}
+Search results (JSON):
+${formatSearchHitsForAi(hits)}
 
+Answer naturally based on the results. If there are no results, say so.
+Use thousands separators for amounts. 2 to 6 sentences.`,
+  );
+  return reply.trim() || formatSearchHitsForUi(hits, locale);
+}
+
+export async function POST(request: Request) {
+  let locale: Locale = DEFAULT_LOCALE;
+  try {
     const session = await getSessionMember();
     if (!session) {
       return NextResponse.json(
-        { error: "로그인이 필요합니다", reply: "로그인이 필요해요." },
+        { error: "Login required", reply: getMessages(locale).server.loginRequired },
         { status: 401 },
       );
     }
     const memberUniqueId = session.uniqueId;
+    locale = session.language;
+    const m = getMessages(locale).server;
+
+    if (!process.env.GEMINI_API_KEY) {
+      return NextResponse.json(
+        { error: "GEMINI_API_KEY is not set", reply: m.aiConfig },
+        { status: 500 },
+      );
+    }
 
     const body = (await request.json()) as ChatBody;
     const message = body.message?.trim();
@@ -152,7 +178,7 @@ export async function POST(request: Request) {
 
     if (!message) {
       return NextResponse.json(
-        { error: "메시지를 입력하세요", reply: "메시지를 입력해 주세요." },
+        { error: "Message is required", reply: m.enterMessage },
         { status: 400 },
       );
     }
@@ -161,143 +187,88 @@ export async function POST(request: Request) {
     const supabase = createServerSupabase();
     const intent = classifyChatIntent(message);
 
-    let categories;
-    let expenseTree;
-    let incomeTree;
-    let generated;
-
+    let trees: Awaited<ReturnType<typeof ensureAiCategoryTrees>>;
     try {
-      ({ categories, expenseTree, incomeTree, generated } =
-        await ensureAiCategoryTrees(supabase, memberUniqueId));
+      trees = await ensureAiCategoryTrees(supabase, memberUniqueId, locale);
     } catch (err) {
-      const detail = err instanceof Error ? err.message : "카테고리 준비 실패";
-      return NextResponse.json(
-        {
-          error: detail,
-          reply:
-            "카테고리를 준비하는 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.",
-        },
-        { status: 500 },
-      );
+      const detail = err instanceof Error ? err.message : "Category setup failed";
+      return NextResponse.json({ error: detail, reply: m.categoryFailed }, { status: 500 });
     }
+    const { categories, expenseTree, incomeTree, generated } = trees;
 
-    // ——— 통계/조회 질문 ———
+    const answerQuestion = async () => {
+      const { expenses, incomes } = await loadLedgerForAi(supabase, memberUniqueId, categories);
+      const reply = await answerStatsQuestion({
+        question: message,
+        today,
+        locale,
+        expenses,
+        incomes,
+        history,
+      });
+      return NextResponse.json({
+        reply,
+        intent: "question",
+        extracted: null,
+        saved: null,
+        generated,
+      });
+    };
+
+    const searchResponse = async (query: string) => {
+      const hits = await searchMemberLedger(supabase, memberUniqueId, query);
+      return NextResponse.json({
+        reply: await answerSearch(query, hits, locale),
+        intent: "search",
+        search: { query, hits },
+        extracted: null,
+        saved: null,
+        generated,
+      });
+    };
+
+    // Stats / lookup questions
     if (intent === "question") {
       try {
-        const { expenses, incomes } = await loadLedgerForAi(
-          supabase,
-          memberUniqueId,
-          categories,
-        );
-        const reply = await answerStatsQuestion({
-          question: message,
-          today,
-          expenses,
-          incomes,
-          history,
-        });
-        return NextResponse.json({
-          reply,
-          intent: "question",
-          extracted: null,
-          saved: null,
-          generated,
-        });
+        return await answerQuestion();
       } catch (err) {
-        const detail = err instanceof Error ? err.message : "통계 질문 처리 실패";
-        return NextResponse.json(
-          {
-            error: detail,
-            reply:
-              "지출 데이터를 살펴보는 중 문제가 생겼어요. 잠시 후 다시 물어봐 주세요.",
-          },
-          { status: 500 },
-        );
+        const detail = err instanceof Error ? err.message : "Stats question failed";
+        return NextResponse.json({ error: detail, reply: m.statsFailed }, { status: 500 });
       }
     }
 
-    // ——— 검색 ———
+    // Search
     if (intent === "search") {
       try {
-        const query = extractSearchQuery(message) || message;
-        const hits = await searchMemberLedger(supabase, memberUniqueId, query);
-        const reply = await generateGeminiText(
-          `당신은 친절한 가계부 검색 도우미입니다.
-회원 식별자/고유ID는 절대 언급하지 마세요.
-검색어: ${query}
-검색 결과(JSON):
-${formatSearchHitsForAi(hits)}
-
-결과를 바탕으로 자연스러운 한국어로 답하세요. 결과가 없으면 없다고 말하세요.
-금액은 천단위 콤마. 2~6문장.`,
-        );
-        return NextResponse.json({
-          reply: reply.trim() || formatSearchHitsForUi(hits),
-          intent: "search",
-          search: { query, hits },
-          extracted: null,
-          saved: null,
-          generated,
-        });
+        return await searchResponse(extractSearchQuery(message) || message);
       } catch (err) {
-        const detail = err instanceof Error ? err.message : "검색 실패";
-        return NextResponse.json(
-          {
-            error: detail,
-            reply: "검색 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.",
-          },
-          { status: 500 },
-        );
+        const detail = err instanceof Error ? err.message : "Search failed";
+        return NextResponse.json({ error: detail, reply: m.searchFailed }, { status: 500 });
       }
     }
 
-    // ——— 지출/수입 기록 ———
+    // Expense / income entries
     let analysis;
     try {
       analysis = await analyzeExpenseMessage({
         message,
         today,
+        locale,
         expenseTree,
         history,
       });
     } catch (err) {
-      const detail = err instanceof Error ? err.message : "Gemini API 오류";
+      const detail = err instanceof Error ? err.message : "Gemini API error";
       return NextResponse.json(
-        {
-          error: detail,
-          reply: detail.includes("혼잡")
-            ? detail
-            : "AI 응답 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요.",
-        },
+        { error: detail, reply: err instanceof GeminiBusyError ? m.aiBusy : m.aiError },
         { status: 500 },
       );
     }
 
-    // analyze가 질문으로 판단한 경우 (휴리스틱 누락 보완)
-    if (
-      analysis.status === "chat" &&
-      /얼마|뭐|어떻게|총\s*지출|가장\s*많이|지난\s*주|이번\s*달/.test(message)
-    ) {
+    // The analyzer judged it a question that the heuristics missed
+    if (analysis.status === "chat" && looksLikeStatsQuestion(message)) {
       try {
-        const { expenses, incomes } = await loadLedgerForAi(
-          supabase,
-          memberUniqueId,
-          categories,
-        );
-        const reply = await answerStatsQuestion({
-          question: message,
-          today,
-          expenses,
-          incomes,
-          history,
-        });
-        return NextResponse.json({
-          reply,
-          intent: "question",
-          extracted: null,
-          saved: null,
-          generated,
-        });
+        return await answerQuestion();
       } catch {
         // fall through
       }
@@ -305,9 +276,7 @@ ${formatSearchHitsForAi(hits)}
 
     if (analysis.status === "need_info") {
       return NextResponse.json({
-        reply:
-          analysis.reply ||
-          "날짜와 금액을 함께 알려주세요. 예: 어제 택시 20000원",
+        reply: analysis.reply || m.needDateAmount,
         intent: "ledger",
         extracted: null,
         saved: null,
@@ -322,8 +291,7 @@ ${formatSearchHitsForAi(hits)}
 
       if (!description || Number.isNaN(amount) || amount <= 0) {
         return NextResponse.json({
-          reply:
-            "금액과 내용을 파악하지 못했어요. 예: 오늘 점심 15000원 처럼 다시 알려주세요.",
+          reply: m.amountUnclear,
           intent: "ledger",
           extracted: null,
           saved: null,
@@ -376,33 +344,19 @@ ${formatSearchHitsForAi(hits)}
 
       if (error) {
         return NextResponse.json(
-          {
-            error: error.message,
-            reply: "저장 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요.",
-            extracted,
-          },
+          { error: error.message, reply: m.saveFailed, extracted },
           { status: 500 },
         );
       }
 
-      const categoryName =
-        categories.find((c) => c.id === categoryId)?.name ??
-        extracted.category_minor ??
-        extracted.category_major ??
-        "미분류";
-
-      const reply = analysis.reply?.includes("저장")
-        ? analysis.reply
-        : formatExpenseConfirm(extracted);
-
       return NextResponse.json({
-        reply,
+        reply: formatSavedConfirm("expense", extracted, locale),
         intent: "ledger",
         extracted,
         saved: {
           type: "expense" as const,
           ...data,
-          categoryName,
+          categoryName: categories.find((c) => c.id === categoryId)?.name ?? null,
         },
         generated,
       });
@@ -412,6 +366,7 @@ ${formatSearchHitsForAi(hits)}
       const parsed = await parseLedgerMessage({
         message,
         today,
+        locale,
         expenseTree,
         incomeTree,
         history,
@@ -419,9 +374,7 @@ ${formatSearchHitsForAi(hits)}
 
       if (parsed.intent === "clarify") {
         return NextResponse.json({
-          reply:
-            parsed.reply ||
-            "날짜나 금액을 조금 더 알려주시면 저장할게요.",
+          reply: parsed.reply || m.clarify,
           intent: "ledger",
           extracted: null,
           saved: null,
@@ -430,31 +383,9 @@ ${formatSearchHitsForAi(hits)}
       }
 
       if (parsed.intent === "search") {
-        const query =
-          parsed.search_query?.trim() ||
-          extractSearchQuery(message) ||
-          message;
-        const hits = await searchMemberLedger(supabase, memberUniqueId, query);
-        const reply =
-          parsed.reply?.includes("검색") || parsed.reply?.includes("찾")
-            ? `${parsed.reply}\n\n${formatSearchHitsForUi(hits)}`
-            : (
-                await generateGeminiText(
-                  `친절한 가계부 검색 답변. 고유ID/회원정보는 말하지 마세요.
-검색어: ${query}
-결과: ${formatSearchHitsForAi(hits)}
-자연스러운 한국어 2~6문장.`,
-                )
-              ).trim() || formatSearchHitsForUi(hits);
-
-        return NextResponse.json({
-          reply,
-          intent: "search",
-          search: { query, hits },
-          extracted: null,
-          saved: null,
-          generated,
-        });
+        return await searchResponse(
+          parsed.search_query?.trim() || extractSearchQuery(message) || message,
+        );
       }
 
       if (parsed.intent === "save_income") {
@@ -464,9 +395,7 @@ ${formatSearchHitsForAi(hits)}
 
         if (!description || Number.isNaN(amount) || amount <= 0) {
           return NextResponse.json({
-            reply:
-              parsed.reply ||
-              "수입 금액과 내용을 함께 알려주세요. 예: 오늘 월급 300만원",
+            reply: parsed.reply || m.incomeNeedInfo,
             intent: "ledger",
             extracted: null,
             saved: null,
@@ -474,22 +403,12 @@ ${formatSearchHitsForAi(hits)}
           });
         }
 
-        const categoryId = findMinorCategoryId(
-          categories,
-          "income",
-          parsed.major,
-          parsed.minor,
-        );
+        const categoryId = findMinorCategoryId(categories, "income", parsed.major, parsed.minor);
 
-        const labels = await recordIncomeLabels(
-          supabase,
-          memberUniqueId,
-          Math.round(amount),
-          {
-            incomeDetail: parsed.income_detail ?? description,
-            incomeSource: parsed.income_source,
-          },
-        );
+        const labels = await recordIncomeLabels(supabase, memberUniqueId, Math.round(amount), {
+          incomeDetail: parsed.income_detail ?? description,
+          incomeSource: parsed.income_source,
+        });
 
         const { data, error } = await supabase
           .from("incomes")
@@ -509,16 +428,15 @@ ${formatSearchHitsForAi(hits)}
 
         if (error) {
           return NextResponse.json(
-            {
-              error: error.message,
-              reply: "수입 저장 중 오류가 발생했어요. 잠시 후 다시 시도해 주세요.",
-            },
+            { error: error.message, reply: m.incomeSaveFailed },
             { status: 500 },
           );
         }
 
         return NextResponse.json({
-          reply: parsed.reply,
+          reply:
+            parsed.reply ||
+            formatSavedConfirm("income", { date, description, amount: Math.round(amount) }, locale),
           intent: "ledger",
           extracted: {
             date,
@@ -532,44 +450,31 @@ ${formatSearchHitsForAi(hits)}
           saved: {
             type: "income" as const,
             ...data,
-            categoryName:
-              categories.find((c) => c.id === categoryId)?.name ??
-              parsed.minor ??
-              "미분류",
+            categoryName: categories.find((c) => c.id === categoryId)?.name ?? null,
           },
           generated,
         });
       }
 
-      // save_expense via parseLedger fallback
+      // save_expense via the parseLedger fallback
       if (parsed.intent === "save_expense") {
         const amount = Number(parsed.amount);
         const description = parsed.description?.trim();
         const date = normalizeDate(parsed.date, today) ?? today;
         if (!description || Number.isNaN(amount) || amount <= 0) {
           return NextResponse.json({
-            reply: parsed.reply || "금액과 내용을 알려주세요.",
+            reply: parsed.reply || m.needAmountDescription,
             intent: "ledger",
             extracted: null,
             saved: null,
             generated,
           });
         }
-        const categoryId = findMinorCategoryId(
-          categories,
-          "expense",
-          parsed.major,
-          parsed.minor,
-        );
-        const labels = await recordExpenseLabels(
-          supabase,
-          memberUniqueId,
-          Math.round(amount),
-          {
-            itemName: parsed.item_name ?? description,
-            place: parsed.place,
-          },
-        );
+        const categoryId = findMinorCategoryId(categories, "expense", parsed.major, parsed.minor);
+        const labels = await recordExpenseLabels(supabase, memberUniqueId, Math.round(amount), {
+          itemName: parsed.item_name ?? description,
+          place: parsed.place,
+        });
         const { data, error } = await supabase
           .from("expenses")
           .insert({
@@ -586,13 +491,12 @@ ${formatSearchHitsForAi(hits)}
           )
           .single();
         if (error) {
-          return NextResponse.json(
-            { error: error.message, reply: "저장 중 오류가 발생했어요." },
-            { status: 500 },
-          );
+          return NextResponse.json({ error: error.message, reply: m.saveFailed }, { status: 500 });
         }
         return NextResponse.json({
-          reply: parsed.reply,
+          reply:
+            parsed.reply ||
+            formatSavedConfirm("expense", { date, description, amount: Math.round(amount) }, locale),
           intent: "ledger",
           extracted: {
             date,
@@ -606,40 +510,16 @@ ${formatSearchHitsForAi(hits)}
           saved: {
             type: "expense" as const,
             ...data,
-            categoryName:
-              categories.find((c) => c.id === categoryId)?.name ??
-              parsed.minor ??
-              "미분류",
+            categoryName: categories.find((c) => c.id === categoryId)?.name ?? null,
           },
           generated,
         });
       }
 
-      // 일반 대화인데 통계성 표현이면 질문으로 재시도
-      if (
-        parsed.intent === "chat" &&
-        /지출|수입|썼|샀|통계|내역/.test(message)
-      ) {
+      // Small talk that mentions the ledger: retry as a stats question
+      if (parsed.intent === "chat" && mentionsLedgerTopic(message)) {
         try {
-          const { expenses, incomes } = await loadLedgerForAi(
-            supabase,
-            memberUniqueId,
-            categories,
-          );
-          const reply = await answerStatsQuestion({
-            question: message,
-            today,
-            expenses,
-            incomes,
-            history,
-          });
-          return NextResponse.json({
-            reply,
-            intent: "question",
-            extracted: null,
-            saved: null,
-            generated,
-          });
+          return await answerQuestion();
         } catch {
           // fall through
         }
@@ -654,7 +534,7 @@ ${formatSearchHitsForAi(hits)}
       });
     } catch {
       return NextResponse.json({
-        reply: analysis.reply || "무엇을 기록할까요? 예: 오늘 점심 15000원",
+        reply: analysis.reply || m.whatToRecord,
         intent: "chat",
         extracted: null,
         saved: null,
@@ -662,12 +542,9 @@ ${formatSearchHitsForAi(hits)}
       });
     }
   } catch (err) {
-    const message = err instanceof Error ? err.message : "챗봇 처리에 실패했습니다";
+    const message = err instanceof Error ? err.message : "Chat failed";
     return NextResponse.json(
-      {
-        error: message,
-        reply: "일시적인 오류가 발생했어요. 잠시 후 다시 시도해 주세요.",
-      },
+      { error: message, reply: getMessages(locale).server.temporaryError },
       { status: 500 },
     );
   }

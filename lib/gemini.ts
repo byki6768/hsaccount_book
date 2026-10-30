@@ -1,15 +1,23 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-/** 우선순위: lite(부하↓) → flash. 503이면 다음 모델로 전환 */
+/** Priority: lite (less load) first, then flash. Falls back on 503. */
 export const GEMINI_MODELS = [
   "gemini-flash-lite-latest",
   "gemini-flash-latest",
 ] as const;
 
+/** Thrown when every model stays overloaded; routes show a localized "busy" reply. */
+export class GeminiBusyError extends Error {
+  constructor() {
+    super("Gemini is overloaded, try again later");
+    this.name = "GeminiBusyError";
+  }
+}
+
 function getApiKey() {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
-    throw new Error("GEMINI_API_KEY가 설정되지 않았습니다");
+    throw new Error("GEMINI_API_KEY is not set");
   }
   return apiKey;
 }
@@ -32,13 +40,13 @@ function sleep(ms: number) {
 
 export type GeminiInlineImage = {
   mimeType: string;
-  /** raw base64 (data URL prefix 없이) */
+  /** raw base64 (no data URL prefix) */
   data: string;
 };
 
 /**
- * Gemini 호출: 모델 폴백 + 짧은 재시도
- * 텍스트만, 또는 텍스트+이미지(Vision)
+ * Calls Gemini with model fallback and short retries.
+ * Text only, or text + image (vision).
  */
 export async function generateGeminiText(
   prompt: string,
@@ -80,14 +88,10 @@ export async function generateGeminiText(
   }
 
   if (lastError instanceof Error) {
-    if (isRetryableError(lastError)) {
-      throw new Error(
-        "AI 서버가 잠시 혼잡해요. 잠시 후 다시 시도해 주세요.",
-      );
-    }
+    if (isRetryableError(lastError)) throw new GeminiBusyError();
     throw lastError;
   }
-  throw new Error("Gemini 응답에 실패했습니다");
+  throw new Error("Gemini request failed");
 }
 
 export function extractJson<T>(text: string): T {
@@ -96,7 +100,7 @@ export function extractJson<T>(text: string): T {
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start === -1 || end === -1 || end <= start) {
-    throw new Error("AI 응답에서 JSON을 찾지 못했습니다");
+    throw new Error("No JSON found in AI response");
   }
   return JSON.parse(raw.slice(start, end + 1)) as T;
 }

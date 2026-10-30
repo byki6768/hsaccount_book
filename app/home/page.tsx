@@ -6,6 +6,9 @@ import { AuthGuard } from "@/components/AuthGuard";
 import { ReceiptUploadButton } from "@/components/ReceiptUploadButton";
 import { VoiceMicButton } from "@/components/VoiceMicButton";
 import { useSpeechToText } from "@/components/useSpeechToText";
+import { formatMoney } from "@/lib/i18n/format";
+import { useI18n } from "@/lib/i18n/useI18n";
+
 type Expense = {
   id: number;
   date: string;
@@ -33,38 +36,21 @@ type ChatResponse = {
   } | null;
 };
 
-function formatExampleDate(d = new Date()) {
-  const yy = String(d.getFullYear()).slice(2);
-  const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
-  return `${yy}년${d.getMonth() + 1}월${d.getDate()}일(${weekdays[d.getDay()]})`;
-}
-
-const CHAT_EXAMPLES = [
-  {
-    user: '무엇이든 말하거나 입력해 보세요!\n기록: "오늘 점심 칼국수 8000원"',
-    assistant: (dateLabel: string) =>
-      `${dateLabel} 점심식대로 칼국수 8000원을 쓰셨어요! 잘 저장해 두겠습니다.`,
-  },
-  {
-    user: '무엇이든 말하거나 입력해 보세요!\n질문: "이번 달 총 지출이 얼마야?"',
-    assistant: (dateLabel: string) =>
-      `${dateLabel.replace(/\([일월화수목금토]\)/, "")} 오늘까지 이번 주는 교통비로 "**,***원", 식대로 "**,***원", 주간소계로 "***,***원" 지출하셨습니다.\n둘째 주는 ${dateLabel} 점심식대로 칼국수 8000원을 쓰셨어요! 잘 저장해 두겠습니다.`,
-  },
-  {
-    user: '무엇이든 말하거나 입력해 보세요!\n검색: "스타벅스 찾아줘"',
-    assistant: () =>
-      '스타벅스 관련 기록을 찾아봤어요.\n예: 커피·카페 지출 몇 건이 검색됩니다. 마이크·영수증 사진으로도 입력할 수 있어요.',
-  },
-] as const;
+class ChatReplyError extends Error {}
 
 function ChatExamplePreview() {
-  const dateLabel = formatExampleDate();
+  const { m } = useI18n();
+  const today = new Date();
+  const examples = m.home.examples(
+    m.home.exampleDate(today, true),
+    m.home.exampleDate(today, false),
+  );
   return (
     <div className="space-y-4">
       <p className="px-1 text-center text-sm font-semibold tracking-tight text-slate-500">
-        &lt;사용 예시&gt;
+        {m.home.examplesTitle}
       </p>
-      {CHAT_EXAMPLES.map((ex, index) => (
+      {examples.map((ex, index) => (
         <div key={index} className="space-y-2.5">
           <div className="flex justify-start">
             <div className="max-w-[88%] whitespace-pre-wrap break-words rounded-2xl rounded-bl-md border border-dashed border-slate-200 bg-white/80 px-3.5 py-2.5 text-[14px] leading-relaxed text-slate-500 shadow-sm sm:text-[15px]">
@@ -73,13 +59,13 @@ function ChatExamplePreview() {
           </div>
           <div className="flex justify-end">
             <div className="max-w-[88%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-white px-3.5 py-2.5 text-[14px] leading-relaxed text-slate-800 shadow-sm sm:text-[15px]">
-              {ex.assistant(dateLabel)}
+              {ex.assistant}
             </div>
           </div>
         </div>
       ))}
       <p className="px-1 text-center text-xs text-slate-400">
-        마이크·영수증 사진으로도 입력할 수 있어요.
+        {m.home.examplesFooter}
       </p>
     </div>
   );
@@ -92,11 +78,12 @@ function SavedExpenseStrip({
   expenses: Expense[];
   loading: boolean;
 }) {
+  const { m, locale } = useI18n();
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
 
-  // 최신이 오른쪽: 오래된 → 최신 순
+  // Newest on the right: oldest to newest
   const ordered = [...expenses].reverse();
 
   const updateScrollState = useCallback(() => {
@@ -136,15 +123,15 @@ function SavedExpenseStrip({
   return (
     <section className="mb-3 shrink-0">
       <div className="mb-2 flex items-center justify-between px-1">
-        <h2 className="text-sm font-semibold text-slate-600">저장된 지출 내역</h2>
-        <span className="text-xs text-slate-400">{expenses.length}건</span>
+        <h2 className="text-sm font-semibold text-slate-600">{m.home.savedExpenses}</h2>
+        <span className="text-xs text-slate-400">{m.common.itemCount(expenses.length)}</span>
       </div>
 
       <div className="relative">
         {canScrollLeft && (
           <button
             type="button"
-            aria-label="이전 지출 내역"
+            aria-label={m.home.previousExpenses}
             onClick={() => scrollByCards(-1)}
             className="absolute left-0 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200/80 bg-white/85 text-lg text-slate-500 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-slate-700"
           >
@@ -154,7 +141,7 @@ function SavedExpenseStrip({
         {canScrollRight && (
           <button
             type="button"
-            aria-label="다음 지출 내역"
+            aria-label={m.home.nextExpenses}
             onClick={() => scrollByCards(1)}
             className="absolute right-0 top-1/2 z-10 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200/80 bg-white/70 text-lg text-slate-400 shadow-sm backdrop-blur-sm transition hover:bg-white hover:text-slate-600"
           >
@@ -168,11 +155,11 @@ function SavedExpenseStrip({
         >
           {loading ? (
             <div className="w-full rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 py-6 text-center text-sm text-slate-400">
-              불러오는 중...
+              {m.common.loading}
             </div>
           ) : ordered.length === 0 ? (
             <div className="w-full rounded-2xl border border-dashed border-slate-200 bg-white/70 px-4 py-6 text-center text-sm text-slate-400">
-              아직 저장된 지출이 없습니다
+              {m.home.noExpenses}
             </div>
           ) : (
             ordered.map((item) => (
@@ -187,7 +174,7 @@ function SavedExpenseStrip({
                   {item.description}
                 </p>
                 <p className="mt-1.5 text-[11px] font-semibold tabular-nums text-emerald-700 sm:mt-2 sm:text-sm">
-                  {item.amount.toLocaleString("ko-KR")}원
+                  {formatMoney(item.amount, locale)}
                 </p>
               </article>
             ))
@@ -207,6 +194,7 @@ export default function HomePage() {
 }
 
 function ChatHome() {
+  const { m } = useI18n();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -233,15 +221,15 @@ function ChatHome() {
       const res = await fetch("/api/ledger?include=expenses", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error || "지출 목록을 불러오지 못했습니다");
+        setError(m.home.loadExpensesFailed);
         return;
       }
       setExpenses(data.expenses ?? []);
       setError(null);
     } catch {
-      setError("지출 목록을 불러오지 못했습니다");
+      setError(m.home.loadExpensesFailed);
     }
-  }, []);
+  }, [m]);
 
   useEffect(() => {
     let cancelled = false;
@@ -280,8 +268,8 @@ function ChatHome() {
 
       try {
         const history = nextMessages
-          .filter((m) => m.id !== "welcome")
-          .map((m) => ({ role: m.role, content: m.content }));
+          .filter((msg) => msg.id !== "welcome")
+          .map((msg) => ({ role: msg.role, content: msg.content }));
 
         const res = await fetch("/api/chat", {
           method: "POST",
@@ -294,7 +282,7 @@ function ChatHome() {
 
         const data = (await res.json()) as ChatResponse;
         if (!res.ok) {
-          throw new Error(data.reply || data.error || "응답에 실패했습니다");
+          throw new ChatReplyError(data.reply || m.common.sorry(m.home.sendFailed));
         }
 
         setMessages((prev) => [
@@ -302,7 +290,7 @@ function ChatHome() {
           {
             id: `a-${Date.now()}`,
             role: "assistant",
-            content: data.reply || "처리했어요.",
+            content: data.reply || m.home.processed,
           },
         ]);
 
@@ -310,14 +298,15 @@ function ChatHome() {
           await fetchExpenses();
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : "전송에 실패했습니다";
+        const msg =
+          err instanceof ChatReplyError ? err.message : m.common.sorry(m.home.sendFailed);
         setError(msg);
         setMessages((prev) => [
           ...prev,
           {
             id: `a-err-${Date.now()}`,
             role: "assistant",
-            content: msg.startsWith("죄송") ? msg : `죄송해요. ${msg}`,
+            content: msg,
           },
         ]);
       } finally {
@@ -325,7 +314,7 @@ function ChatHome() {
         sendingRef.current = false;
       }
     },
-    [fetchExpenses],
+    [fetchExpenses, m],
   );
 
   const handleReceiptFile = useCallback(
@@ -333,7 +322,7 @@ function ChatHome() {
       if (sendingRef.current || uploadingReceipt) return;
 
       if (!file.type.startsWith("image/")) {
-        setError("이미지 파일만 업로드할 수 있어요.");
+        setError(m.home.imagesOnly);
         return;
       }
 
@@ -345,7 +334,7 @@ function ChatHome() {
         {
           id: `u-receipt-${Date.now()}`,
           role: "user",
-          content: `영수증 사진을 올렸어요 (${file.name || "image"})`,
+          content: m.home.receiptUploaded(file.name || "image"),
         },
       ]);
 
@@ -368,7 +357,7 @@ function ChatHome() {
         };
 
         if (!res.ok) {
-          throw new Error(data.reply || data.error || "영수증 분석에 실패했습니다");
+          throw new ChatReplyError(data.reply || m.common.sorry(m.home.receiptFailed));
         }
 
         setMessages((prev) => [
@@ -376,7 +365,7 @@ function ChatHome() {
           {
             id: `a-receipt-${Date.now()}`,
             role: "assistant",
-            content: data.reply || "영수증을 처리했어요.",
+            content: data.reply || m.home.receiptProcessed,
           },
         ]);
 
@@ -385,21 +374,21 @@ function ChatHome() {
         }
       } catch (err) {
         const msg =
-          err instanceof Error ? err.message : "영수증 업로드에 실패했습니다";
+          err instanceof ChatReplyError ? err.message : m.common.sorry(m.home.receiptFailed);
         setError(msg);
         setMessages((prev) => [
           ...prev,
           {
             id: `a-receipt-err-${Date.now()}`,
             role: "assistant",
-            content: msg.startsWith("죄송") ? msg : `죄송해요. ${msg}`,
+            content: msg,
           },
         ]);
       } finally {
         setUploadingReceipt(false);
       }
     },
-    [fetchExpenses, uploadingReceipt],
+    [fetchExpenses, uploadingReceipt, m],
   );
 
   const handleSend = async (e: FormEvent) => {
@@ -413,11 +402,10 @@ function ChatHome() {
     listening,
     toggle: toggleSpeech,
   } = useSpeechToText({
-    lang: "ko-KR",
     disabled: sending || uploadingReceipt,
     onInterimTranscript: (text) => {
       setInput(text);
-      setVoiceHint("듣는 중…");
+      setVoiceHint(m.home.hintListening);
     },
     onFinalTranscript: (text) => {
       setInput(text);
@@ -439,10 +427,10 @@ function ChatHome() {
       <div className="page-main flex w-full flex-1 flex-col pt-3 sm:pt-4">
         <header className="mb-3 shrink-0 text-center">
           <h1 className="text-xl font-semibold tracking-tight text-slate-800 sm:text-2xl">
-            AI 가계부 챗봇
+            {m.common.headerTitle}
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            텍스트 또는 음성으로 수입·지출을 기록하세요
+            {m.home.subtitle}
           </p>
         </header>
 
@@ -481,10 +469,10 @@ function ChatHome() {
             }}
             placeholder={
               listening
-                ? "음성 인식 중…"
+                ? m.home.placeholderListening
                 : uploadingReceipt
-                  ? "영수증 분석 중…"
-                  : "여기에 무엇이든 말하거나 입력해 보세요!\n음성입력, 메시지입력, 사진(영수증) 등 뭐든지 가능해요!"
+                  ? m.home.placeholderReceipt
+                  : m.home.placeholder
             }
             disabled={sending || uploadingReceipt}
             rows={4}
@@ -503,7 +491,7 @@ function ChatHome() {
             }
             className="flex h-11 shrink-0 items-center justify-center self-end rounded-full bg-emerald-600 px-4 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            전송
+            {m.home.send}
           </button>
         </form>
 
@@ -519,9 +507,9 @@ function ChatHome() {
           >
             {error ??
               (uploadingReceipt
-                ? "영수증에서 금액·날짜·품목을 읽는 중…"
+                ? m.home.bannerReceipt
                 : listening
-                  ? "듣고 있어요. 말씀해 주세요…"
+                  ? m.home.bannerListening
                   : voiceHint)}
           </p>
         )}
@@ -554,14 +542,14 @@ function ChatHome() {
             {sending && (
               <div className="flex justify-start">
                 <div className="rounded-2xl rounded-bl-md bg-white px-4 py-3 text-sm text-slate-400 shadow-sm">
-                  입력 중…
+                  {m.home.typing}
                 </div>
               </div>
             )}
             {uploadingReceipt && (
               <div className="flex justify-start">
                 <div className="rounded-2xl rounded-bl-md bg-white px-4 py-3 text-sm text-slate-400 shadow-sm">
-                  영수증 인식 중…
+                  {m.home.recognizingReceipt}
                 </div>
               </div>
             )}

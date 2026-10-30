@@ -8,6 +8,7 @@ import {
   OverallPeriodPanel,
 } from "@/components/StatsPeriodViews";
 import type { Category } from "@/lib/categories";
+import { useI18n } from "@/lib/i18n/useI18n";
 import type { SearchHit } from "@/lib/ledgerSearch";
 import { todayKeySeoul, type TxRow } from "@/lib/statsPeriod";
 type Tab = "all" | "income" | "expense";
@@ -21,6 +22,7 @@ export default function StatsPage() {
 }
 
 function StatsContent() {
+  const { m } = useI18n();
   const [tab, setTab] = useState<Tab>("all");
   const [expenseCategories, setExpenseCategories] = useState<Category[]>([]);
   const [incomeCategories, setIncomeCategories] = useState<Category[]>([]);
@@ -42,15 +44,14 @@ function StatsContent() {
 
     try {
       const ensureRes = await fetch("/api/categories/ensure", { method: "POST" });
-      const ensureData = await ensureRes.json();
       if (!ensureRes.ok) {
-        throw new Error(ensureData.error || "카테고리를 준비하지 못했습니다");
+        throw new Error(m.stats.loadFailed);
       }
 
       const ledgerRes = await fetch("/api/ledger", { cache: "no-store" });
       const ledger = await ledgerRes.json();
       if (!ledgerRes.ok) {
-        throw new Error(ledger.error || "통계를 불러오지 못했습니다");
+        throw new Error(m.stats.loadFailed);
       }
 
       const cats = (ledger.categories ?? []) as Category[];
@@ -59,11 +60,11 @@ function StatsContent() {
       setExpenseRows((ledger.expenses ?? []) as TxRow[]);
       setIncomeRows((ledger.incomes ?? []) as TxRow[]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "통계를 불러오지 못했습니다");
+      setError(err instanceof Error ? err.message : m.stats.loadFailed);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [m]);
 
   useEffect(() => {
     load();
@@ -83,11 +84,11 @@ function StatsContent() {
         body: JSON.stringify({ query: q }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "검색에 실패했습니다");
+      if (!res.ok) throw new Error(m.stats.searchFailed);
       setSearchHits((data.hits ?? []) as SearchHit[]);
       setSearchText(String(data.text ?? ""));
     } catch (err) {
-      setSearchError(err instanceof Error ? err.message : "검색 실패");
+      setSearchError(err instanceof Error ? err.message : m.stats.searchFailed);
       setSearchHits([]);
       setSearchText("");
     } finally {
@@ -96,9 +97,9 @@ function StatsContent() {
   };
 
   const tabs: Array<{ id: Tab; label: string }> = [
-    { id: "all", label: "전체 보기" },
-    { id: "expense", label: "지출 보기" },
-    { id: "income", label: "수입 보기" },
+    { id: "all", label: m.stats.tabAll },
+    { id: "expense", label: m.stats.tabExpense },
+    { id: "income", label: m.stats.tabIncome },
   ];
 
   return (
@@ -108,16 +109,16 @@ function StatsContent() {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h1 className="text-2xl font-semibold text-slate-800 sm:text-3xl">
-              나의 지출·수입 보기
+              {m.stats.title}
             </h1>
-            <p className="mt-1 text-sm text-slate-500">주간 월간 지출·수입 보기</p>
+            <p className="mt-1 text-sm text-slate-500">{m.stats.subtitle}</p>
           </div>
           <button
             type="button"
             onClick={() => setSearchOpen((v) => !v)}
             className="mt-1 shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 sm:text-sm"
           >
-            {searchOpen ? "닫기" : "나의 가계부 검색"}
+            {searchOpen ? m.common.close : m.stats.searchButton}
           </button>
         </div>
 
@@ -128,7 +129,7 @@ function StatsContent() {
                 type="search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="품목·개별품목·장소·수입내역·수입처·내용 검색"
+                placeholder={m.stats.searchPlaceholder}
                 className="h-11 min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 text-base outline-none focus:border-emerald-400 focus:bg-white focus:ring-4 focus:ring-emerald-100"
               />
               <button
@@ -136,11 +137,11 @@ function StatsContent() {
                 disabled={searching || !searchQuery.trim()}
                 className="h-11 shrink-0 rounded-xl bg-emerald-600 px-4 text-sm font-semibold text-white disabled:opacity-50"
               >
-                {searching ? "검색 중" : "검색"}
+                {searching ? m.stats.searching : m.stats.search}
               </button>
             </form>
             <p className="mt-2 text-xs text-slate-400">
-              회원정보·고유 ID는 검색·표시되지 않습니다.
+              {m.stats.searchPrivacy}
             </p>
             {searchError && (
               <p className="mt-3 text-sm text-red-600">{searchError}</p>
@@ -151,7 +152,7 @@ function StatsContent() {
               </pre>
             )}
             {!searchError && searchHits.length === 0 && searchText && (
-              <p className="mt-2 text-sm text-slate-400">결과 없음</p>
+              <p className="mt-2 text-sm text-slate-400">{m.stats.noResults}</p>
             )}
           </section>
         )}
@@ -174,7 +175,7 @@ function StatsContent() {
         </div>
 
         {loading ? (
-          <p className="mt-10 text-center text-slate-400">통계 준비 중...</p>
+          <p className="mt-10 text-center text-slate-400">{m.stats.loading}</p>
         ) : error ? (
           <div className="mt-6 rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
             {error}
@@ -183,7 +184,7 @@ function StatsContent() {
               onClick={load}
               className="mt-2 block font-semibold underline"
             >
-              다시 시도
+              {m.common.retry}
             </button>
           </div>
         ) : (

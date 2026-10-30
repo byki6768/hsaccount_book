@@ -1,4 +1,4 @@
-// 저축 돼지 아이콘 생성: node scripts/generate-icons.mjs
+// Generate the savings-pig icons: node scripts/generate-icons.mjs
 import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
@@ -54,7 +54,7 @@ const background = `
     </linearGradient>
   </defs>`;
 
-/** 모바일·마스커블: 꽉 찬 배경 (OS가 모양을 잘라냄) */
+/** Mobile and maskable: full-bleed background (the OS crops the shape) */
 function fullBleedSvg(scale = 1) {
   const offset = (512 * (1 - scale)) / 2;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">${background}
@@ -63,7 +63,7 @@ function fullBleedSvg(scale = 1) {
 </svg>`;
 }
 
-/** 데스크톱·파비콘: 둥근 모서리 + 투명 바깥 */
+/** Desktop and favicon: rounded corners with a transparent outside */
 function roundedSvg() {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">${background}
   <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
@@ -81,7 +81,7 @@ async function png(svg, size, file) {
   return target;
 }
 
-/** PNG 여러 장을 담은 .ico 파일 */
+/** .ico file that bundles several PNGs */
 function writeIco(pngPaths, target) {
   const images = pngPaths.map((p) => fs.readFileSync(p));
   const header = Buffer.alloc(6 + images.length * 16);
@@ -109,18 +109,18 @@ const mobileSvg = fullBleedSvg(1);
 const maskableSvg = fullBleedSvg(0.78);
 const desktopSvg = roundedSvg();
 
-// 모바일 - 안드로이드
+// Mobile - Android
 await png(mobileSvg, 192, "mobile/android/icon-192x192.png");
 await png(mobileSvg, 512, "mobile/android/icon-512x512.png");
 await png(maskableSvg, 192, "mobile/android/maskable-192x192.png");
 await png(maskableSvg, 512, "mobile/android/maskable-512x512.png");
 
-// 모바일 - 아이폰·아이패드 (홈 화면 추가)
+// Mobile - iPhone and iPad (add to home screen)
 for (const size of [120, 152, 167, 180]) {
   await png(mobileSvg, size, `mobile/ios/apple-touch-icon-${size}x${size}.png`);
 }
 
-// 데스크톱 - 브라우저 탭·윈도우·맥 설치
+// Desktop - browser tab, Windows and macOS install
 const icoParts = [];
 for (const size of [16, 32, 48]) {
   icoParts.push(await png(desktopSvg, size, `desktop/favicon-${size}x${size}.png`));
@@ -136,7 +136,7 @@ fs.copyFileSync(
 fs.writeFileSync(path.join(OUT, "desktop", "icon.svg"), desktopSvg);
 fs.writeFileSync(path.join(process.cwd(), "public", "logo.svg"), desktopSvg);
 
-// 첫 화면 대표 이미지 (CSS로 모서리를 둥글게 자르므로 배경을 꽉 채움)
+// Landing hero image (full background; CSS rounds the corners)
 await sharp(Buffer.from(fullBleedSvg(0.9)), { density: 880 })
   .resize(880, 880)
   .png()

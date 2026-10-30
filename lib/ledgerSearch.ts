@@ -1,4 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { formatMoney } from "@/lib/i18n/format";
+import type { Locale } from "@/lib/i18n/locales";
+import { getMessages } from "@/lib/i18n/messages";
 
 export type SearchHit = {
   type:
@@ -26,7 +29,7 @@ export type SearchHit = {
 };
 
 /**
- * 회원 식별자·고유 ID를 제외한 가계부 데이터 검색
+ * Searches ledger data, never exposing member identifiers or unique IDs.
  */
 export async function searchMemberLedger(
   supabase: SupabaseClient,
@@ -191,39 +194,44 @@ export async function searchMemberLedger(
 }
 
 export function formatSearchHitsForAi(hits: SearchHit[]): string {
-  if (hits.length === 0) return "(검색 결과 없음)";
+  if (hits.length === 0) return "(no results)";
   return JSON.stringify(hits, null, 2);
 }
 
-export function formatSearchHitsForUi(hits: SearchHit[]): string {
-  if (hits.length === 0) return "검색 결과가 없습니다.";
+export function formatSearchHitsForUi(hits: SearchHit[], locale: Locale): string {
+  const { search: s, common } = getMessages(locale);
+  if (hits.length === 0) return s.noResults;
+
+  const money = (value: number | null | undefined) => formatMoney(value ?? 0, locale);
+  const total = (label: string, hit: SearchHit) =>
+    `[${label}] ${hit.name} / ${money(hit.total_amount)} (${common.itemCount(hit.entry_count ?? 0)})`;
 
   return hits
     .map((hit, index) => {
-      const n = index + 1;
+      const n = `${index + 1}.`;
       switch (hit.type) {
         case "expense":
-          return `${n}. [지출] ${hit.date ?? "-"} / ${hit.description ?? "-"} / ${(hit.amount ?? 0).toLocaleString("ko-KR")}원` +
-            (hit.item_name ? ` / 품목:${hit.item_name}` : "") +
-            (hit.place ? ` / 장소:${hit.place}` : "");
+          return `${n} [${s.expense}] ${hit.date ?? "-"} / ${hit.description ?? "-"} / ${money(hit.amount)}` +
+            (hit.item_name ? ` / ${s.item}: ${hit.item_name}` : "") +
+            (hit.place ? ` / ${s.place}: ${hit.place}` : "");
         case "expense_line_item":
-          return `${n}. [개별품목] ${hit.item_name ?? "-"} / ${(hit.item_amount ?? 0).toLocaleString("ko-KR")}원`;
+          return `${n} [${s.lineItem}] ${hit.item_name ?? "-"} / ${money(hit.item_amount)}`;
         case "income":
-          return `${n}. [수입] ${hit.date ?? "-"} / ${hit.description ?? "-"} / ${(hit.amount ?? 0).toLocaleString("ko-KR")}원` +
-            (hit.income_detail ? ` / 내역:${hit.income_detail}` : "") +
-            (hit.income_source ? ` / 수입처:${hit.income_source}` : "");
+          return `${n} [${s.income}] ${hit.date ?? "-"} / ${hit.description ?? "-"} / ${money(hit.amount)}` +
+            (hit.income_detail ? ` / ${s.detail}: ${hit.income_detail}` : "") +
+            (hit.income_source ? ` / ${s.source}: ${hit.income_source}` : "");
         case "purchase_item":
-          return `${n}. [구매품목 합계] ${hit.name} / ${(hit.total_amount ?? 0).toLocaleString("ko-KR")}원 (${hit.entry_count ?? 0}건)`;
+          return `${n} ${total(s.itemTotal, hit)}`;
         case "purchase_place":
-          return `${n}. [구매장소 합계] ${hit.name} / ${(hit.total_amount ?? 0).toLocaleString("ko-KR")}원 (${hit.entry_count ?? 0}건)`;
+          return `${n} ${total(s.placeTotal, hit)}`;
         case "income_detail":
-          return `${n}. [수입내역 합계] ${hit.name} / ${(hit.total_amount ?? 0).toLocaleString("ko-KR")}원 (${hit.entry_count ?? 0}건)`;
+          return `${n} ${total(s.incomeDetailTotal, hit)}`;
         case "income_source":
-          return `${n}. [수입처 합계] ${hit.name} / ${(hit.total_amount ?? 0).toLocaleString("ko-KR")}원 (${hit.entry_count ?? 0}건)`;
+          return `${n} ${total(s.incomeSourceTotal, hit)}`;
         case "category":
-          return `${n}. [분류] ${hit.kind === "income" ? "수입" : "지출"} · ${hit.name}`;
+          return `${n} [${s.category}] ${hit.kind === "income" ? s.income : s.expense} · ${hit.name}`;
         default:
-          return `${n}. 결과`;
+          return `${n} ${s.result}`;
       }
     })
     .join("\n");

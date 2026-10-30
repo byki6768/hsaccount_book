@@ -1,6 +1,8 @@
 /**
- * Web Speech API 헬퍼 (Chrome/Edge/Android + Safari/iOS webkit)
+ * Web Speech API helpers (Chrome/Edge/Android + Safari/iOS webkit)
  */
+
+import type { Messages } from "@/lib/i18n/messages/ko";
 
 export type SpeechRecognitionLike = {
   lang: string;
@@ -59,7 +61,7 @@ export function isSecureSpeechContext(): boolean {
   );
 }
 
-/** 모바일에서 마이크 권한 프롬프트를 먼저 띄워 인식 성공률을 높임 */
+/** Ask for mic permission first on mobile to improve recognition success */
 export async function ensureMicrophonePermission(): Promise<void> {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
     return;
@@ -73,20 +75,20 @@ export async function ensureMicrophonePermission(): Promise<void> {
   stream.getTracks().forEach((track) => track.stop());
 }
 
-export function speechErrorMessage(errorCode: string): string {
+export function speechErrorMessage(errorCode: string, m: Messages["speech"]): string {
   switch (errorCode) {
     case "not-allowed":
     case "service-not-allowed":
-      return "마이크 권한이 필요해요. 브라우저/기기 설정에서 마이크를 허용해 주세요.";
+      return m.micPermission;
     case "no-speech":
-      return "음성이 감지되지 않았어요. 다시 말씀해 주세요.";
+      return m.noSpeech;
     case "audio-capture":
-      return "마이크를 찾을 수 없어요. 연결 상태를 확인해 주세요.";
+      return m.micNotFound;
     case "network":
-      return "음성 인식 네트워크 오류예요. 인터넷 연결 후 다시 시도해 주세요.";
+      return m.network;
     case "aborted":
       return "";
     default:
-      return "음성 인식에 실패했어요. 다시 시도해 주세요.";
+      return m.failed;
   }
 }

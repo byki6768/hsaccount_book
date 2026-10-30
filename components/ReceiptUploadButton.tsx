@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import { useI18n } from "@/lib/i18n/useI18n";
 
 type ReceiptUploadButtonProps = {
   disabled?: boolean;
@@ -13,6 +14,7 @@ export function ReceiptUploadButton({
   uploading,
   onFile,
 }: ReceiptUploadButtonProps) {
+  const { m } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
@@ -32,8 +34,8 @@ export function ReceiptUploadButton({
         type="button"
         disabled={disabled || uploading}
         onClick={() => inputRef.current?.click()}
-        aria-label={uploading ? "영수증 분석 중" : "영수증 사진 업로드"}
-        title={uploading ? "영수증 분석 중…" : "영수증 사진 업로드"}
+        aria-label={uploading ? m.home.receiptAnalyzing : m.home.receiptUpload}
+        title={uploading ? m.home.receiptAnalyzing : m.home.receiptUpload}
         className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 ${
           uploading
             ? "border-sky-200 bg-sky-50 text-sky-600"

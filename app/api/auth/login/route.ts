@@ -8,7 +8,9 @@ import {
   normalizeCountryCode,
   normalizePhone,
   type Member,
+  type SessionInfo,
 } from "@/lib/auth";
+import { DEFAULT_LOCALE, isLocale } from "@/lib/i18n/locales";
 import { hashPassword, isBcryptHash, verifyPassword } from "@/lib/password";
 import { setSessionCookie } from "@/lib/session";
 import { createServerSupabase } from "@/lib/supabase/server";
@@ -21,38 +23,40 @@ type LoginBody = {
   countryCode?: string;
   phone?: string;
   password?: string;
+  /** Sent only when the user picked a language on a pre-login screen. */
+  language?: string;
 };
+
+function invalid(code: string) {
+  return NextResponse.json({ code, error: `Invalid input: ${code}` }, { status: 400 });
+}
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as LoginBody;
     const password = body.password ?? "";
 
-    if (!isValidPassword(password)) {
-      return NextResponse.json({ error: "비밀번호 형식이 올바르지 않습니다" }, { status: 400 });
-    }
+    if (!isValidPassword(password)) return invalid("invalid_password");
 
     const supabase = createServerSupabase();
     let query = supabase.from("members").select("*").eq("is_active", true);
 
     if (body.mode === "email") {
       const email = (body.email ?? "").trim().toLowerCase();
-      if (!isValidEmail(email)) {
-        return NextResponse.json({ error: "이메일을 입력하세요" }, { status: 400 });
-      }
+      if (!isValidEmail(email)) return invalid("invalid_email");
       query = query.eq("email", email);
     } else if (body.mode === "phone") {
       const countryCode = body.countryCode ?? "";
       const phone = body.phone ?? "";
       if (!isValidCountryCode(countryCode) || !isValidPhone(phone)) {
-        return NextResponse.json({ error: "휴대폰 번호를 입력하세요" }, { status: 400 });
+        return invalid("invalid_phone");
       }
       query = query
         .eq("auth_type", "phone")
         .eq("country_code", normalizeCountryCode(countryCode))
         .eq("phone", normalizePhone(phone));
     } else {
-      return NextResponse.json({ error: "로그인 방식을 선택하세요" }, { status: 400 });
+      return invalid("invalid_mode");
     }
 
     const { data, error } = await query.maybeSingle();
@@ -64,21 +68,35 @@ export async function POST(request: Request) {
     }
 
     if (!(await verifyPassword(password, member.password))) {
-      return NextResponse.json({ error: "비밀번호가 올바르지 않습니다" }, { status: 401 });
+      return NextResponse.json({ code: "wrong_password" }, { status: 401 });
     }
 
+    const updates: Record<string, string> = {};
     if (member.password && !isBcryptHash(member.password)) {
-      await supabase
-        .from("members")
-        .update({ password: await hashPassword(password) })
-        .eq("unique_id", member.unique_id);
+      updates.password = await hashPassword(password);
     }
 
-    const user = { authType: member.auth_type, loginId: getLoginId(member) };
-    await setSessionCookie({ ...user, uniqueId: member.unique_id });
-    return NextResponse.json(user);
+    const chosen = isLocale(body.language) ? body.language : null;
+    if (chosen && chosen !== member.language) updates.language = chosen;
+    const language = chosen ?? (isLocale(member.language) ? member.language : DEFAULT_LOCALE);
+
+    if (Object.keys(updates).length > 0) {
+      await supabase.from("members").update(updates).eq("unique_id", member.unique_id);
+    }
+
+    const info: SessionInfo = {
+      authType: member.auth_type,
+      loginId: getLoginId(member),
+      language,
+    };
+    await setSessionCookie({
+      uniqueId: member.unique_id,
+      authType: info.authType,
+      loginId: info.loginId,
+    });
+    return NextResponse.json(info);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "로그인에 실패했습니다";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const message = err instanceof Error ? err.message : "Login failed";
+    return NextResponse.json({ code: "server_error", error: message }, { status: 500 });
   }
 }

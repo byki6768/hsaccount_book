@@ -17,7 +17,7 @@ function normalizeLabel(value: string | null | undefined): string | null {
 }
 
 /**
- * 동일 이름이면 total_amount / entry_count 를 누적(추가)
+ * For an existing name, accumulates total_amount / entry_count.
  */
 async function upsertNamedTotal(
   supabase: SupabaseClient,
@@ -150,7 +150,7 @@ export async function saveExpenseLineItems(
   const { error } = await supabase.from("expense_line_items").insert(rows);
   if (error) throw new Error(error.message);
 
-  // 개별 품목별로 구매품목 합계 누적
+  // Accumulate purchase-item totals per line item
   for (const row of rows) {
     await upsertNamedTotal(
       supabase,

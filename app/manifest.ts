@@ -3,9 +3,9 @@ import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/",
-    name: "AI 가계부 챗봇",
-    short_name: "AI 가계부",
-    description: "즐겁고 아기자기하게, 매일 조금씩 모으는 AI 저축 가계부",
+    name: "My AI Account Chatbot",
+    short_name: "AI Account",
+    description: "An AI account book you keep by chatting (Korean, English, Japanese)",
     start_url: "/",
     scope: "/",
     display: "standalone",

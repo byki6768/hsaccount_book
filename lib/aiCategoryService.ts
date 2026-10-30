@@ -2,6 +2,8 @@ import type { Category, CategoryKind } from "@/lib/categories";
 import { groupCategories, isMajor } from "@/lib/categories";
 import type { AiCategoryTree } from "@/lib/aiCategories";
 import { generateCategoryTree } from "@/lib/aiCategories";
+import { containsOtherMarker } from "@/lib/i18n/categoryDefaults";
+import type { Locale } from "@/lib/i18n/locales";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export async function fetchMemberCategories(
@@ -58,6 +60,7 @@ async function seedAiTree(
 export async function ensureAiCategoryTrees(
   supabase: SupabaseClient,
   memberUniqueId: string,
+  locale: Locale,
 ): Promise<{
   categories: Category[];
   expenseTree: AiCategoryTree;
@@ -74,7 +77,7 @@ export async function ensureAiCategoryTrees(
       const minors = categories.filter((c) => c.parent_id === major.id);
       if (minors.length < 2 || minors.length > 4) return true;
       const last = [...minors].sort((a, b) => a.sort_order - b.sort_order).at(-1);
-      return !last?.name.includes("기타");
+      return !last || !containsOtherMarker(last.name);
     });
   };
 
@@ -102,7 +105,7 @@ export async function ensureAiCategoryTrees(
       .is("parent_id", null);
     if (majorClearError) throw new Error(majorClearError.message);
 
-    const tree = await generateCategoryTree(kind);
+    const tree = await generateCategoryTree(kind, locale);
     await seedAiTree(supabase, memberUniqueId, kind, tree);
   }
 
@@ -155,14 +158,14 @@ export function findMinorCategoryId(
     const fallback = groups[0];
     if (!fallback) return null;
     const other =
-      fallback.minors.find((m) => m.name.includes("기타")) ?? fallback.minors.at(-1);
+      fallback.minors.find((m) => containsOtherMarker(m.name)) ?? fallback.minors.at(-1);
     return other?.id ?? fallback.major.id;
   }
 
   const minor =
     major.minors.find((m) => m.name === minorName) ??
     major.minors.find((m) => minorName && m.name.includes(minorName)) ??
-    major.minors.find((m) => m.name.includes("기타")) ??
+    major.minors.find((m) => containsOtherMarker(m.name)) ??
     major.minors.at(-1);
 
   return minor?.id ?? major.major.id;

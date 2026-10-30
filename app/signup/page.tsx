@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PasswordInput } from "@/components/PasswordInput";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { SpeechBubble } from "@/components/SpeechBubble";
 import {
   isValidCountryCode,
@@ -10,13 +11,16 @@ import {
   isValidPassword,
   isValidPhone,
   setSession,
-  type SessionUser,
+  type SessionInfo,
 } from "@/lib/auth";
+import { clearExplicitLocaleChoice } from "@/lib/i18n/localeStore";
+import { useI18n } from "@/lib/i18n/useI18n";
 
 type SignupMode = "select" | "email" | "phone";
 
 export default function SignupPage() {
   const router = useRouter();
+  const { m, locale } = useI18n();
   const [mode, setMode] = useState<SignupMode>("select");
   const [email, setEmail] = useState("");
   const [countryCode, setCountryCode] = useState("+82");
@@ -68,21 +72,23 @@ export default function SignupPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           mode === "email"
-            ? { mode, email, password }
-            : { mode, countryCode, phone, password },
+            ? { mode, email, password, language: locale }
+            : { mode, countryCode, phone, password, language: locale },
         ),
       });
       const data = await res.json();
 
       if (!res.ok) {
-        setFormError(data.error || "가입에 실패했습니다");
+        setFormError(data.code === "duplicate" ? m.signup.duplicate : m.signup.failed);
         return;
       }
 
-      setSession(data as SessionUser);
+      const info = data as SessionInfo;
+      setSession({ authType: info.authType, loginId: info.loginId });
+      clearExplicitLocaleChoice();
       router.replace("/home");
     } catch {
-      setFormError("가입에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+      setFormError(m.signup.failed);
     } finally {
       setSubmitting(false);
     }
@@ -96,16 +102,16 @@ export default function SignupPage() {
           onClick={() => (mode === "select" ? router.push("/") : setMode("select"))}
           className="mb-6 self-start text-sm font-medium text-slate-500 hover:text-slate-700"
         >
-          ← {mode === "select" ? "처음으로" : "가입 방식 선택"}
+          ← {mode === "select" ? m.auth.backToStart : m.signup.backToMethods}
         </button>
 
-        <h1 className="text-3xl font-semibold text-slate-800">신규 회원 가입</h1>
+        <h1 className="text-3xl font-semibold text-slate-800">{m.signup.title}</h1>
         <p className="mt-2 text-base text-slate-500">
           {mode === "select"
-            ? "가입 방식을 선택해 주세요"
+            ? m.signup.chooseMethod
             : mode === "email"
-              ? "이메일로 가입합니다"
-              : "휴대폰 번호로 가입합니다"}
+              ? m.signup.withEmail
+              : m.signup.withPhone}
         </p>
 
         {mode === "select" ? (
@@ -115,21 +121,21 @@ export default function SignupPage() {
               onClick={() => setMode("email")}
               className="flex h-14 w-full items-center justify-center rounded-2xl bg-emerald-600 text-lg font-semibold text-white transition hover:bg-emerald-700"
             >
-              이메일 가입
+              {m.signup.emailButton}
             </button>
             <button
               type="button"
               onClick={() => setMode("phone")}
               className="flex h-14 w-full items-center justify-center rounded-2xl border-2 border-emerald-600 bg-white text-lg font-semibold text-emerald-700 transition hover:bg-emerald-50"
             >
-              휴대폰 번호 가입
+              {m.signup.phoneButton}
             </button>
             <button
               type="button"
               onClick={() => router.push("/login")}
               className="mt-2 text-center text-base font-medium text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline"
             >
-              이미 회원이신가요? 로그인
+              {m.signup.alreadyMember}
             </button>
           </div>
         ) : (
@@ -137,9 +143,9 @@ export default function SignupPage() {
             {mode === "email" ? (
               <div className="flex flex-col gap-2.5">
                 <label htmlFor="email" className="text-base font-medium text-slate-700">
-                  ID (이메일)
+                  {m.auth.idEmail}
                 </label>
-                {emailInvalid && <SpeechBubble message="이메일을 입력하세요" />}
+                {emailInvalid && <SpeechBubble message={m.auth.enterEmail} />}
                 <input
                   id="email"
                   type="email"
@@ -153,12 +159,12 @@ export default function SignupPage() {
             ) : (
               <div className="flex flex-col gap-2.5">
                 <label htmlFor="phone" className="text-base font-medium text-slate-700">
-                  ID (휴대폰 번호)
+                  {m.auth.idPhone}
                 </label>
                 <div className="flex items-end gap-2">
                   <div className="w-[6.5rem] shrink-0">
                     {countryCodeInvalid && (
-                      <SpeechBubble message="국가번호를 입력하세요" />
+                      <SpeechBubble message={m.auth.enterCountryCode} />
                     )}
                     <input
                       id="countryCode"
@@ -169,14 +175,14 @@ export default function SignupPage() {
                       onBlur={() =>
                         setTouched((t) => ({ ...t, countryCode: true }))
                       }
-                      aria-label="국가번호"
+                      aria-label={m.auth.countryCode}
                       placeholder="+82"
                       className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-3 text-center text-lg text-slate-800 outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100 sm:h-12 sm:text-base"
                     />
                   </div>
                   <div className="min-w-0 flex-1">
                     {phoneInvalid && (
-                      <SpeechBubble message="휴대폰 번호를 입력하세요" />
+                      <SpeechBubble message={m.auth.enterPhone} />
                     )}
                     <input
                       id="phone"
@@ -197,10 +203,10 @@ export default function SignupPage() {
 
             <div className="flex flex-col gap-2.5">
               <label htmlFor="password" className="text-base font-medium text-slate-700">
-                비밀번호
+                {m.auth.password}
               </label>
               {passwordInvalid && (
-                <SpeechBubble message="문자 또는 숫자로만 입력하세요" />
+                <SpeechBubble message={m.auth.passwordRule} />
               )}
               <PasswordInput
                 id="password"
@@ -217,10 +223,10 @@ export default function SignupPage() {
                 htmlFor="passwordConfirm"
                 className="text-base font-medium text-slate-700"
               >
-                비밀번호 확인
+                {m.auth.passwordConfirm}
               </label>
               {passwordMismatch && (
-                <SpeechBubble message="비밀번호가 일치하지 않습니다" />
+                <SpeechBubble message={m.auth.passwordMismatch} />
               )}
               <PasswordInput
                 id="passwordConfirm"
@@ -239,10 +245,14 @@ export default function SignupPage() {
               disabled={submitting}
               className="flex h-14 w-full items-center justify-center rounded-2xl bg-emerald-600 text-lg font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
             >
-              {submitting ? "가입 중..." : "가입 완료"}
+              {submitting ? m.signup.submitting : m.signup.submit}
             </button>
           </form>
         )}
+
+        <div className="mt-auto w-full pt-10">
+          <LanguageSwitcher variant="buttons" />
+        </div>
       </div>
     </div>
   );

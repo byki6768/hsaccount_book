@@ -9,6 +9,8 @@ import {
   speechErrorMessage,
   type SpeechRecognitionLike,
 } from "@/lib/speechRecognition";
+import { LOCALE_TAGS } from "@/lib/i18n/locales";
+import { useI18n } from "@/lib/i18n/useI18n";
 
 type UseSpeechToTextOptions = {
   lang?: string;
@@ -19,16 +21,19 @@ type UseSpeechToTextOptions = {
 };
 
 /**
- * Web/Android/iOS 공통: continuous=false + final 시 콜백
- * (continuous는 모바일에서 불안정한 경우가 많음)
+ * Shared for Web/Android/iOS: continuous=false with a callback on final results
+ * (continuous mode is often unstable on mobile)
  */
 export function useSpeechToText({
-  lang = "ko-KR",
+  lang,
   onFinalTranscript,
   onInterimTranscript,
   onError,
   disabled = false,
 }: UseSpeechToTextOptions) {
+  const { locale, m } = useI18n();
+  const speechLang = lang ?? LOCALE_TAGS[locale];
+  const speechMessages = m.speech;
   const [supported, setSupported] = useState(false);
   const [listening, setListening] = useState(false);
   const [securable, setSecurable] = useState(true);
@@ -100,16 +105,12 @@ export function useSpeechToText({
   const start = useCallback(async () => {
     if (disabled) return;
     if (!isSecureSpeechContext()) {
-      onErrorRef.current?.(
-        "음성 인식은 HTTPS(또는 localhost)에서만 사용할 수 있어요.",
-      );
+      onErrorRef.current?.(speechMessages.httpsOnly);
       return;
     }
     const Ctor = getSpeechRecognitionConstructor();
     if (!Ctor) {
-      onErrorRef.current?.(
-        "이 브라우저에서는 음성 인식을 지원하지 않아요. Chrome 또는 Safari(최신)를 사용해 주세요.",
-      );
+      onErrorRef.current?.(speechMessages.browserUnsupported);
       return;
     }
 
@@ -122,14 +123,12 @@ export function useSpeechToText({
       await ensureMicrophonePermission();
     } catch {
       activeRef.current = false;
-      onErrorRef.current?.(
-        "마이크 권한이 필요해요. 브라우저·기기 설정에서 마이크를 허용해 주세요.",
-      );
+      onErrorRef.current?.(speechMessages.micPermission);
       return;
     }
 
     const recognition = new Ctor();
-    recognition.lang = lang;
+    recognition.lang = speechLang;
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
     recognition.continuous = false;
@@ -173,7 +172,7 @@ export function useSpeechToText({
     };
 
     recognition.onerror = (event) => {
-      const message = speechErrorMessage(event.error);
+      const message = speechErrorMessage(event.error, speechMessages);
       if (message) onErrorRef.current?.(message);
       if (
         event.error === "not-allowed" ||
@@ -204,9 +203,9 @@ export function useSpeechToText({
     } catch {
       activeRef.current = false;
       setListening(false);
-      onErrorRef.current?.("음성 인식을 시작할 수 없어요. 다시 눌러 주세요.");
+      onErrorRef.current?.(speechMessages.startFailed);
     }
-  }, [cleanupRecognition, deliverFinal, disabled, lang]);
+  }, [cleanupRecognition, deliverFinal, disabled, speechLang, speechMessages]);
 
   const toggle = useCallback(() => {
     if (listening || activeRef.current) {

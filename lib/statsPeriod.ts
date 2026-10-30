@@ -1,18 +1,7 @@
-/** Asia/Seoul 기준 YYYY-MM-DD 유틸 (주=월~일) */
+/** YYYY-MM-DD helpers based on Asia/Seoul (weeks run Monday to Sunday) */
 
-export const WEEKDAY_LABELS = [
-  "월요일",
-  "화요일",
-  "수요일",
-  "목요일",
-  "금요일",
-  "토요일",
-  "일요일",
-] as const;
-
-export function formatWon(value: number): string {
-  return `${value.toLocaleString("ko-KR")}원`;
-}
+import { formatYearMonth } from "@/lib/i18n/format";
+import type { Locale } from "@/lib/i18n/locales";
 
 export function toDateKey(date: Date): string {
   const y = date.getFullYear();
@@ -35,10 +24,10 @@ export function todayKeySeoul(): string {
   }).format(new Date());
 }
 
-/** 해당 날짜가 속한 주(월~일)의 월요일 */
+/** Monday of the week (Mon-Sun) that contains the date */
 export function startOfWeekMonday(dateKey: string): Date {
   const date = parseDateKey(dateKey);
-  const day = date.getDay(); // 0=일 … 6=토
+  const day = date.getDay(); // 0=Sun ... 6=Sat
   const diff = day === 0 ? -6 : 1 - day;
   date.setDate(date.getDate() + diff);
   date.setHours(0, 0, 0, 0);
@@ -71,9 +60,9 @@ export function shiftMonth(anchorKey: string, deltaMonths: number): string {
   return toDateKey(d);
 }
 
-export function monthLabel(anchorKey: string): string {
+export function monthLabel(anchorKey: string, locale: Locale): string {
   const { year, month } = monthParts(anchorKey);
-  return `${year}년 ${month}월`;
+  return formatYearMonth(year, month, locale);
 }
 
 export function weekRangeLabel(anchorKey: string): string {
@@ -84,12 +73,12 @@ export function weekRangeLabel(anchorKey: string): string {
   return `${fmt(a)} ~ ${fmt(b)}`;
 }
 
-/** 월간 캘린더 셀 (월요일 시작), null = 빈 칸 */
+/** Monthly calendar cells (Monday first); null = empty cell */
 export function buildMonthCells(anchorKey: string): Array<string | null> {
   const { year, month } = monthParts(anchorKey);
   const first = new Date(year, month - 1, 1);
   const daysInMonth = new Date(year, month, 0).getDate();
-  const firstDow = first.getDay(); // 0=일
+  const firstDow = first.getDay(); // 0=Sun
   const leading = firstDow === 0 ? 6 : firstDow - 1;
 
   const cells: Array<string | null> = [];

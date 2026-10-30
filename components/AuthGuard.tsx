@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { clearSession, setSession, type SessionUser } from "@/lib/auth";
+import { clearSession, setSession, type SessionInfo } from "@/lib/auth";
+import { isLocale } from "@/lib/i18n/locales";
+import { useI18n } from "@/lib/i18n/useI18n";
 
 type AuthGuardProps = {
   children: React.ReactNode;
@@ -11,6 +13,7 @@ type AuthGuardProps = {
 export function AuthGuard({ children }: AuthGuardProps) {
   const router = useRouter();
   const pathname = usePathname();
+  const { m, setLocale } = useI18n();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -24,7 +27,9 @@ export function AuthGuard({ children }: AuthGuardProps) {
           router.replace("/");
           return;
         }
-        setSession((await res.json()) as SessionUser);
+        const info = (await res.json()) as SessionInfo;
+        setSession({ authType: info.authType, loginId: info.loginId });
+        if (isLocale(info.language)) setLocale(info.language);
         setReady(true);
       } catch {
         if (!cancelled) router.replace("/");
@@ -33,7 +38,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
     return () => {
       cancelled = true;
     };
-  }, [router, pathname]);
+  }, [router, pathname, setLocale]);
 
   useEffect(() => {
     const onLeave = () => {
@@ -54,7 +59,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
   if (!ready) {
     return (
       <div className="flex min-h-full items-center justify-center px-4 text-slate-500">
-        로그인 확인 중...
+        {m.common.checkingLogin}
       </div>
     );
   }

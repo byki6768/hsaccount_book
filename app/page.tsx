@@ -2,9 +2,12 @@
 
 import Image from "next/image";
 import { useRouter } from "next/navigation";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { useI18n } from "@/lib/i18n/useI18n";
 
 export default function LandingPage() {
   const router = useRouter();
+  const { m } = useI18n();
 
   const goLogin = () => {
     router.push("/login");
@@ -22,7 +25,7 @@ export default function LandingPage() {
             <div className="absolute inset-0 scale-110 rounded-full bg-pink-200/50 blur-2xl" />
             <Image
               src="/account-book-hero.png"
-              alt="나의 AI 가계부 로고"
+              alt={m.common.logoAlt}
               width={220}
               height={220}
               priority
@@ -30,10 +33,10 @@ export default function LandingPage() {
             />
           </div>
           <h1 className="text-4xl font-semibold tracking-tight text-slate-800 sm:text-[2.5rem]">
-            나의 AI 가계부
+            {m.common.appName}
           </h1>
           <p className="mt-3 max-w-xs text-base text-slate-500">
-            밝고 차분하게, 오늘의 지출을 기록하세요
+            {m.landing.tagline}
           </p>
         </div>
 
@@ -43,15 +46,19 @@ export default function LandingPage() {
             onClick={goLogin}
             className="flex h-14 w-full items-center justify-center rounded-2xl bg-emerald-600 text-lg font-semibold text-white transition hover:bg-emerald-700 active:scale-[0.99]"
           >
-            로그인
+            {m.common.login}
           </button>
           <button
             type="button"
             onClick={goSignup}
             className="flex h-14 w-full items-center justify-center rounded-2xl border-2 border-emerald-600 bg-white text-lg font-semibold text-emerald-700 transition hover:bg-emerald-50 active:scale-[0.99]"
           >
-            신규 회원
+            {m.common.signup}
           </button>
+        </div>
+
+        <div className="mt-6 w-full">
+          <LanguageSwitcher variant="buttons" />
         </div>
       </div>
     </div>

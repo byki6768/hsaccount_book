@@ -1,84 +1,70 @@
 import { extractJson, generateGeminiText } from "@/lib/gemini";
 import type { CategoryKind } from "@/lib/categories";
+import {
+  DEFAULT_CATEGORY_TREES,
+  OTHER_MINOR_EXAMPLES,
+  containsOtherMarker,
+  otherMinorName,
+  type CategoryTree,
+} from "@/lib/i18n/categoryDefaults";
+import { formatMoney, formatMonthDay } from "@/lib/i18n/format";
+import { LOCALE_ENGLISH_NAMES, type Locale } from "@/lib/i18n/locales";
+import { getMessages } from "@/lib/i18n/messages";
 
-export type AiCategoryTree = {
-  majors: Array<{
-    name: string;
-    minors: string[];
-  }>;
-};
+export type AiCategoryTree = CategoryTree;
 
-const KIND_LABEL: Record<CategoryKind, string> = {
-  expense: "지출",
-  income: "수입",
-};
+type ChatTurn = { role: "user" | "assistant"; content: string };
+
+function formatHistory(history: ChatTurn[], limit: number): string {
+  const text = history
+    .slice(-limit)
+    .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
+    .join("\n");
+  return text || "(none)";
+}
+
+const AMOUNT_RULES = `- amount is an integer in the user's currency (Korean won, Japanese yen, etc.).
+- "만" (Korean) and "万" (Japanese) mean x10,000, e.g. "2만원" = 20000, "3万円" = 30000.`;
 
 export async function generateCategoryTree(
   kind: CategoryKind,
+  locale: Locale,
 ): Promise<AiCategoryTree> {
-  const prompt = `당신은 한국 개인 가계부 카테고리 설계자입니다.
-${KIND_LABEL[kind]} 내역을 분류할 대분류·소분류 트리를 JSON으로만 반환하세요.
+  const language = LOCALE_ENGLISH_NAMES[locale];
+  const prompt = `You design categories for a personal household ledger.
+Return ONLY JSON: a tree of major and minor categories for classifying ${kind === "expense" ? "expenses" : "income"}.
 
-규칙:
-- 대분류(majors)는 정확히 8개
-- 각 대분류 아래 소분류(minors)는 2~4개
-- 각 대분류의 소분류 목록 마지막 항목은 반드시 "(기타)"로 끝나야 함 (예: "식비(기타)", "급여(기타)")
-- 이름은 짧고 명확한 한국어
-- JSON 외 텍스트 금지
+Rules:
+- Exactly 8 majors.
+- Each major has 2 to 4 minors.
+- The last minor of every major is that major's catch-all "other" bucket, written like ${OTHER_MINOR_EXAMPLES[locale]}.
+- All names are short, clear ${language}.
+- No text outside the JSON.
 
-형식:
-{"majors":[{"name":"대분류명","minors":["소분류1","소분류2","대분류명(기타)"]}]}`;
+Format:
+{"majors":[{"name":"Major","minors":["Minor 1","Minor 2","Major (other)"]}]}`;
 
   try {
-    const text = await generateGeminiText(prompt);
-    const tree = extractJson<AiCategoryTree>(text);
+    const tree = extractJson<AiCategoryTree>(await generateGeminiText(prompt));
 
     if (!Array.isArray(tree.majors) || tree.majors.length !== 8) {
-      throw new Error(`${KIND_LABEL[kind]} 대분류는 정확히 8개여야 합니다`);
+      throw new Error(`Expected exactly 8 ${kind} majors`);
     }
-
     for (const major of tree.majors) {
-      if (!major.name?.trim()) throw new Error("빈 대분류 이름이 있습니다");
+      if (!major.name?.trim()) throw new Error("Empty major name");
       if (!Array.isArray(major.minors) || major.minors.length < 2 || major.minors.length > 4) {
-        throw new Error(`"${major.name}" 소분류는 2~4개여야 합니다`);
+        throw new Error(`"${major.name}" must have 2 to 4 minors`);
       }
     }
 
-    return dedupeCategoryTree(tree);
+    return dedupeCategoryTree(tree, locale);
   } catch {
-    return dedupeCategoryTree(DEFAULT_TREES[kind]);
+    return dedupeCategoryTree(DEFAULT_CATEGORY_TREES[locale][kind], locale);
   }
 }
 
-const DEFAULT_TREES: Record<CategoryKind, AiCategoryTree> = {
-  expense: {
-    majors: [
-      { name: "식비", minors: ["외식", "식료품", "식비(기타)"] },
-      { name: "주거/통신", minors: ["관리비", "통신비", "주거/통신(기타)"] },
-      { name: "생활용품", minors: ["생필품", "가전/가구", "생활용품(기타)"] },
-      { name: "의류/미용", minors: ["의류", "미용", "의류/미용(기타)"] },
-      { name: "건강/의료", minors: ["병원", "약국", "건강/의료(기타)"] },
-      { name: "문화/여가", minors: ["여행", "취미", "문화/여가(기타)"] },
-      { name: "교통/차량", minors: ["대중교통", "주유", "교통/차량(기타)"] },
-      { name: "금융/기타", minors: ["보험", "경조사", "금융/기타(기타)"] },
-    ],
-  },
-  income: {
-    majors: [
-      { name: "급여", minors: ["월급", "상여금", "급여(기타)"] },
-      { name: "사업소득", minors: ["매출", "사업소득(기타)"] },
-      { name: "부수입", minors: ["아르바이트", "부수입(기타)"] },
-      { name: "금융소득", minors: ["이자", "배당", "금융소득(기타)"] },
-      { name: "용돈", minors: ["가족", "용돈(기타)"] },
-      { name: "환급", minors: ["세금환급", "환급(기타)"] },
-      { name: "판매", minors: ["중고판매", "판매(기타)"] },
-      { name: "기타수입", minors: ["지원금", "기타수입(기타)"] },
-    ],
-  },
-};
-
-/** 같은 회원·종류 안에서 카테고리 이름이 겹치지 않도록 정리 (DB 유니크 제약) */
-function dedupeCategoryTree(tree: AiCategoryTree): AiCategoryTree {
+/** Category names must be unique per member and kind (DB unique constraint). */
+function dedupeCategoryTree(tree: AiCategoryTree, locale: Locale): AiCategoryTree {
   const used = new Set<string>();
   const unique = (base: string, qualifier: string) => {
     let name = base.trim();
@@ -93,7 +79,7 @@ function dedupeCategoryTree(tree: AiCategoryTree): AiCategoryTree {
   };
 
   const majors = tree.majors.map((major, index) => ({
-    name: unique(major.name, `대분류${index + 1}`),
+    name: unique(major.name, String(index + 1)),
     minors: major.minors,
   }));
 
@@ -101,7 +87,9 @@ function dedupeCategoryTree(tree: AiCategoryTree): AiCategoryTree {
     majors: majors.map((major) => {
       const minors = major.minors.map((m) => m.trim()).filter(Boolean);
       const last = minors[minors.length - 1] ?? "";
-      if (!last.includes("기타")) minors[minors.length - 1] = `${major.name}(기타)`;
+      if (!containsOtherMarker(last)) {
+        minors[minors.length - 1] = otherMinorName(major.name, locale);
+      }
       return {
         name: major.name,
         minors: minors.map((m) => unique(m, major.name)),
@@ -110,7 +98,7 @@ function dedupeCategoryTree(tree: AiCategoryTree): AiCategoryTree {
   };
 }
 
-/** Gemini가 반환하는 지출 분석 JSON */
+/** Expense analysis JSON returned by Gemini. */
 export type ExpenseAnalysis = {
   status: "ok" | "need_info" | "chat";
   date: string | null;
@@ -141,47 +129,45 @@ export type ParsedLedgerIntent = {
 export async function analyzeExpenseMessage(params: {
   message: string;
   today: string;
+  locale: Locale;
   expenseTree: AiCategoryTree;
-  history: Array<{ role: "user" | "assistant"; content: string }>;
+  history: ChatTurn[];
 }): Promise<ExpenseAnalysis> {
-  const historyText = params.history
-    .slice(-8)
-    .map((m) => `${m.role === "user" ? "사용자" : "AI"}: ${m.content}`)
-    .join("\n");
+  const language = LOCALE_ENGLISH_NAMES[params.locale];
+  const prompt = `You are a friendly AI household-ledger chatbot. Extract expense information from the user's natural-language message.
+The user may write in Korean, English, or Japanese.
+Today's date (Asia/Seoul): ${params.today}
 
-  const prompt = `당신은 한국 AI 가계부 챗봇입니다. 사용자의 자연어에서 지출 정보를 추출합니다.
-오늘 날짜(Asia/Seoul): ${params.today}
-
-사용 가능한 지출 카테고리(이 목록의 이름만 사용):
+Available expense categories (use only these names):
 ${JSON.stringify(params.expenseTree, null, 2)}
 
-최근 대화:
-${historyText || "(없음)"}
+Recent conversation:
+${formatHistory(params.history, 8)}
 
-사용자 메시지:
+User message:
 ${params.message}
 
-규칙:
-1) 통계/조회/검색 질문(얼마, 뭐, 찾아, 검색 등)이면 절대 저장하지 말고 status="chat".
-2) 지출 기록이고 금액(숫자+원/만)이 있으면 status="ok" 로 date, description, amount, item_name, place, category_major, category_minor 를 채운다.
-3) date는 YYYY-MM-DD. "오늘"→${params.today}, "어제"→하루 전. 날짜를 전혀 알 수 없으면 null.
-4) amount는 정수(원). "2만원"=20000. 금액을 알 수 없으면 null.
-5) description은 짧은 한국어 내용(예: 택시, 점심).
-6) item_name은 구매 품목명(예: 아메리카노, 김치). 모르면 description과 같게 하거나 null.
-7) place는 구매 장소/가게명(예: 스타벅스, 이마트). 없으면 null.
-8) category_major / category_minor 는 위 트리에 있는 이름만 사용. 애매하면 해당 대분류의 (기타) 소분류.
-9) 기록 의도인데 날짜 또는 금액이 없으면 status="need_info".
-10) 인사/잡담이면 status="chat".
-11) reply는 친근한 한국어. status=ok 이면 저장 확인 멘트.
+Rules:
+1) If it's a stats/lookup/search question (how much, what, find, search, etc.), never save: status="chat".
+2) If it records an expense and includes an amount, status="ok" and fill date, description, amount, item_name, place, category_major, category_minor.
+3) date is YYYY-MM-DD. "today" = ${params.today}, "yesterday" = one day earlier. If the date is unknown, null.
+${AMOUNT_RULES}
+   If the amount is unknown, null.
+4) description: a short phrase in the user's own words and language (e.g. taxi, lunch).
+5) item_name: the purchased item (e.g. americano, kimchi). If unknown, same as description or null.
+6) place: store or place of purchase (e.g. Starbucks). null if none.
+7) category_major / category_minor must be names from the tree above. If unsure, use that major's catch-all "other" minor.
+8) If it's meant as a record but the date or amount is missing, status="need_info".
+9) Greetings or small talk: status="chat".
+10) reply: a friendly reply written in ${language}. If status="ok", confirm that it was saved.
 
-JSON만 반환:
-{"status":"ok|need_info|chat","date":"YYYY-MM-DD|null","description":"내용|null","amount":20000,"item_name":"택시","place":null,"category_major":"교통비","category_minor":"교통비(기타)","reply":"응답"}`;
+Return ONLY JSON:
+{"status":"ok|need_info|chat","date":"YYYY-MM-DD|null","description":"text|null","amount":20000,"item_name":"taxi","place":null,"category_major":"Transport","category_minor":"Transport (Other)","reply":"reply"}`;
 
-  const text = await generateGeminiText(prompt);
-  const parsed = extractJson<ExpenseAnalysis>(text);
+  const parsed = extractJson<ExpenseAnalysis>(await generateGeminiText(prompt));
 
   if (!parsed.reply?.trim()) {
-    parsed.reply = "알겠어요. 지출 내용을 말씀해 주세요.";
+    parsed.reply = getMessages(params.locale).server.defaultExpenseReply;
   }
   parsed.item_name = parsed.item_name ?? null;
   parsed.place = parsed.place ?? null;
@@ -192,50 +178,48 @@ JSON만 반환:
 export async function parseLedgerMessage(params: {
   message: string;
   today: string;
+  locale: Locale;
   expenseTree: AiCategoryTree;
   incomeTree: AiCategoryTree;
-  history: Array<{ role: "user" | "assistant"; content: string }>;
+  history: ChatTurn[];
 }): Promise<ParsedLedgerIntent> {
-  const historyText = params.history
-    .slice(-8)
-    .map((m) => `${m.role === "user" ? "사용자" : "AI"}: ${m.content}`)
-    .join("\n");
+  const language = LOCALE_ENGLISH_NAMES[params.locale];
+  const prompt = `You are a kind, chat-style AI household-ledger assistant.
+The user may write in Korean, English, or Japanese.
+Today's date: ${params.today}
 
-  const prompt = `당신은 카카오톡 스타일의 친절한 AI 가계부 챗봇입니다.
-오늘 날짜: ${params.today}
-
-지출 카테고리:
+Expense categories:
 ${JSON.stringify(params.expenseTree, null, 2)}
 
-수입 카테고리:
+Income categories:
 ${JSON.stringify(params.incomeTree, null, 2)}
 
-최근 대화:
-${historyText || "(없음)"}
+Recent conversation:
+${formatHistory(params.history, 8)}
 
-사용자 메시지:
+User message:
 ${params.message}
 
-할 일:
-1) 메시지가 지출/수입 기록이면 intent를 save_expense 또는 save_income으로 설정
-2) 검색/찾기 요청("찾아줘","검색","~한 적","어디서 샀")이면 intent=search, search_query에 핵심 키워드
-3) date(YYYY-MM-DD), amount(정수 원), description을 추출
-4) 지출이면 item_name(구매 품목명), place(구매 장소)도 추출
-5) 수입이면 income_detail(수입 내역), income_source(수입처)도 추출
-6) 해당 kind 트리에서 가장 적합한 major/minor 이름을 정확히 골라 지정
-7) 날짜가 없으면 ${params.today} 사용. 금액이 없으면 intent=clarify
-8) 정보가 부족하면 intent=clarify
-9) 일반 대화면 intent=chat
-10) reply는 짧고 친근한 한국어 1~3문장
+Tasks:
+1) If the message records an expense or income, set intent to save_expense or save_income.
+2) If it asks to find/search past records, intent=search and put the key keywords in search_query.
+3) Extract date (YYYY-MM-DD), amount, and description (in the user's own words and language).
+${AMOUNT_RULES}
+4) For expenses also extract item_name (purchased item) and place (where it was bought).
+5) For income also extract income_detail (what the income was) and income_source (who paid).
+6) Pick the best major/minor names exactly as written in the matching tree.
+7) If there is no date, use ${params.today}. If there is no amount, intent=clarify.
+8) If information is missing, intent=clarify.
+9) General conversation: intent=chat.
+10) reply: 1 to 3 short, friendly sentences in ${language}.
 
-JSON만 반환:
-{"intent":"save_expense|save_income|search|chat|clarify","date":"YYYY-MM-DD|null","amount":12345,"description":"내용","item_name":"품목|null","place":"장소|null","income_detail":"내역|null","income_source":"수입처|null","major":"대분류","minor":"소분류","search_query":"키워드|null","reply":"응답"}`;
+Return ONLY JSON:
+{"intent":"save_expense|save_income|search|chat|clarify","date":"YYYY-MM-DD|null","amount":12345,"description":"text","item_name":"item|null","place":"place|null","income_detail":"detail|null","income_source":"source|null","major":"major","minor":"minor","search_query":"keywords|null","reply":"reply"}`;
 
-  const text = await generateGeminiText(prompt);
-  const parsed = extractJson<ParsedLedgerIntent>(text);
+  const parsed = extractJson<ParsedLedgerIntent>(await generateGeminiText(prompt));
 
   if (!parsed.reply?.trim()) {
-    parsed.reply = "알겠어요. 무엇을 도와드릴까요?";
+    parsed.reply = getMessages(params.locale).server.defaultReply;
   }
   parsed.item_name = parsed.item_name ?? null;
   parsed.place = parsed.place ?? null;
@@ -246,17 +230,18 @@ JSON만 반환:
   return parsed;
 }
 
-export function formatExpenseConfirm(params: {
-  date: string;
-  description: string;
-  amount: number;
-}): string {
-  const [, m, d] = params.date.split("-").map(Number);
-  const monthDay =
-    Number.isFinite(m) && Number.isFinite(d)
-      ? `${m}월 ${d}일`
-      : params.date;
-  return `${monthDay} ${params.description} ${params.amount.toLocaleString("ko-KR")}원을 저장했어요.`;
+export function formatSavedConfirm(
+  kind: "expense" | "income",
+  params: { date: string; description: string; amount: number },
+  locale: Locale,
+): string {
+  const m = getMessages(locale).server;
+  const format = kind === "expense" ? m.savedExpense : m.savedIncome;
+  return format(
+    formatMonthDay(params.date, locale),
+    params.description,
+    formatMoney(params.amount, locale),
+  );
 }
 
 export type LedgerRowForAi = {
@@ -271,38 +256,35 @@ export type LedgerRowForAi = {
 export async function answerStatsQuestion(params: {
   question: string;
   today: string;
+  locale: Locale;
   expenses: LedgerRowForAi[];
   incomes: LedgerRowForAi[];
-  history: Array<{ role: "user" | "assistant"; content: string }>;
+  history: ChatTurn[];
 }): Promise<string> {
-  const historyText = params.history
-    .slice(-6)
-    .map((m) => `${m.role === "user" ? "사용자" : "AI"}: ${m.content}`)
-    .join("\n");
-
+  const language = LOCALE_ENGLISH_NAMES[params.locale];
   const expensePayload = params.expenses.slice(0, 400);
   const incomePayload = params.incomes.slice(0, 200);
 
-  const prompt = `당신은 친근한 한국어 AI 가계부 챗봇입니다.
-오늘 날짜(Asia/Seoul): ${params.today}
+  const prompt = `You are a friendly AI household-ledger chatbot. Answer in ${language}.
+Today's date (Asia/Seoul): ${params.today}
 
-아래는 사용자의 실제 가계부 데이터입니다. 이 데이터만 근거로 질문에 답하세요.
-지어내지 마세요. 데이터가 없으면 솔직히 없다고 말하세요.
-금액은 천 단위 콤마(예: 20,000원)로 표기하세요.
-답변은 자연스럽고 짧은 2~5문장. JSON 금지, 마크다운 제목 금지.
+Below is the user's real ledger data. Base your answer only on this data.
+Do not make anything up. If there is no data, say so honestly.
+Write amounts with thousands separators, like "${formatMoney(20000, params.locale)}".
+Answer in 2 to 5 short, natural sentences. No JSON, no markdown headings.
 
-지출 내역 (${params.expenses.length}건, 최대 400건 전달):
+Expenses (${params.expenses.length} total, up to 400 included):
 ${JSON.stringify(expensePayload)}
 
-수입 내역 (${params.incomes.length}건, 최대 200건 전달):
+Income (${params.incomes.length} total, up to 200 included):
 ${JSON.stringify(incomePayload)}
 
-최근 대화:
-${historyText || "(없음)"}
+Recent conversation:
+${formatHistory(params.history, 6)}
 
-사용자 질문:
+User question:
 ${params.question}`;
 
   const text = (await generateGeminiText(prompt)).trim();
-  return text || "데이터를 살펴봤는데, 답변을 만들지 못했어요. 질문을 조금 바꿔 볼래요?";
+  return text || getMessages(params.locale).server.statsNoAnswer;
 }

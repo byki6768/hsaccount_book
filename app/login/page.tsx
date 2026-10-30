@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PasswordInput } from "@/components/PasswordInput";
+import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { SpeechBubble } from "@/components/SpeechBubble";
 import {
   isValidCountryCode,
@@ -10,16 +11,20 @@ import {
   isValidPassword,
   isValidPhone,
   setSession,
-  type SessionUser,
+  type SessionInfo,
 } from "@/lib/auth";
+import {
+  clearExplicitLocaleChoice,
+  hasExplicitLocaleChoice,
+} from "@/lib/i18n/localeStore";
+import { isLocale } from "@/lib/i18n/locales";
+import { useI18n } from "@/lib/i18n/useI18n";
 
 type LoginMode = "select" | "email" | "phone";
 
-const UNKNOWN_ID_MESSAGE =
-  "없는 ID입니다, 신규 회원 가입을 하여 주세요";
-
 export default function LoginPage() {
   const router = useRouter();
+  const { m, locale, setLocale } = useI18n();
   const [mode, setMode] = useState<LoginMode>("select");
   const [email, setEmail] = useState("");
   const [countryCode, setCountryCode] = useState("+82");
@@ -66,6 +71,7 @@ export default function LoginPage() {
     if (!isValidPassword(password)) return;
 
     setLoading(true);
+    const language = hasExplicitLocaleChoice() ? locale : undefined;
 
     try {
       const res = await fetch("/api/auth/login", {
@@ -73,8 +79,8 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           mode === "email"
-            ? { mode, email, password }
-            : { mode, countryCode, phone, password },
+            ? { mode, email, password, language }
+            : { mode, countryCode, phone, password, language },
         ),
       });
       const data = await res.json();
@@ -84,14 +90,17 @@ export default function LoginPage() {
         return;
       }
       if (!res.ok) {
-        setFormError(data.error || "로그인에 실패했습니다");
+        setFormError(data.code === "wrong_password" ? m.login.wrongPassword : m.login.failed);
         return;
       }
 
-      setSession(data as SessionUser);
+      const info = data as SessionInfo;
+      setSession({ authType: info.authType, loginId: info.loginId });
+      if (isLocale(info.language)) setLocale(info.language);
+      clearExplicitLocaleChoice();
       router.replace("/home");
     } catch {
-      setFormError("로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+      setFormError(m.login.failed);
     } finally {
       setLoading(false);
     }
@@ -107,16 +116,16 @@ export default function LoginPage() {
           }
           className="mb-6 self-start text-sm font-medium text-slate-500 hover:text-slate-700"
         >
-          ← {mode === "select" ? "처음으로" : "로그인 방식 선택"}
+          ← {mode === "select" ? m.auth.backToStart : m.login.backToMethods}
         </button>
 
-        <h1 className="text-3xl font-semibold text-slate-800">로그인</h1>
+        <h1 className="text-3xl font-semibold text-slate-800">{m.login.title}</h1>
         <p className="mt-2 text-base text-slate-500">
           {mode === "select"
-            ? "로그인 방식을 선택해 주세요"
+            ? m.login.chooseMethod
             : mode === "email"
-              ? "이메일로 로그인합니다"
-              : "휴대폰 번호로 로그인합니다"}
+              ? m.login.withEmail
+              : m.login.withPhone}
         </p>
 
         {mode === "select" ? (
@@ -126,21 +135,21 @@ export default function LoginPage() {
               onClick={() => resetMode("email")}
               className="flex h-14 w-full items-center justify-center rounded-2xl bg-emerald-600 text-lg font-semibold text-white transition hover:bg-emerald-700"
             >
-              이메일 로그인
+              {m.login.emailButton}
             </button>
             <button
               type="button"
               onClick={() => resetMode("phone")}
               className="flex h-14 w-full items-center justify-center rounded-2xl border-2 border-emerald-600 bg-white text-lg font-semibold text-emerald-700 transition hover:bg-emerald-50"
             >
-              휴대폰 번호 로그인
+              {m.login.phoneButton}
             </button>
             <button
               type="button"
               onClick={() => router.push("/signup")}
               className="mt-2 text-center text-base font-medium text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline"
             >
-              아직 회원이 아니신가요? 신규 회원
+              {m.login.notMember}
             </button>
           </div>
         ) : (
@@ -148,10 +157,10 @@ export default function LoginPage() {
             {mode === "email" ? (
               <div className="flex flex-col gap-2.5">
                 <label htmlFor="email" className="text-base font-medium text-slate-700">
-                  ID (이메일)
+                  {m.auth.idEmail}
                 </label>
-                {unknownId && <SpeechBubble message={UNKNOWN_ID_MESSAGE} />}
-                {emailInvalid && <SpeechBubble message="이메일을 입력하세요" />}
+                {unknownId && <SpeechBubble message={m.login.unknownId} />}
+                {emailInvalid && <SpeechBubble message={m.auth.enterEmail} />}
                 <input
                   id="email"
                   type="email"
@@ -168,12 +177,12 @@ export default function LoginPage() {
             ) : (
               <div className="flex flex-col gap-2.5">
                 <label htmlFor="phone" className="text-base font-medium text-slate-700">
-                  ID (휴대폰 번호)
+                  {m.auth.idPhone}
                 </label>
                 <div className="flex items-end gap-2">
                   <div className="w-[6.5rem] shrink-0">
                     {countryCodeInvalid && (
-                      <SpeechBubble message="국가번호를 입력하세요" />
+                      <SpeechBubble message={m.auth.enterCountryCode} />
                     )}
                     <input
                       id="countryCode"
@@ -187,15 +196,15 @@ export default function LoginPage() {
                       onBlur={() =>
                         setTouched((t) => ({ ...t, countryCode: true }))
                       }
-                      aria-label="국가번호"
+                      aria-label={m.auth.countryCode}
                       placeholder="+82"
                       className="h-14 w-full rounded-2xl border border-slate-200 bg-white px-3 text-center text-lg text-slate-800 outline-none focus:border-emerald-400 focus:ring-4 focus:ring-emerald-100 sm:h-12 sm:text-base"
                     />
                   </div>
                   <div className="min-w-0 flex-1">
-                    {unknownId && <SpeechBubble message={UNKNOWN_ID_MESSAGE} />}
+                    {unknownId && <SpeechBubble message={m.login.unknownId} />}
                     {phoneInvalid && (
-                      <SpeechBubble message="휴대폰 번호를 입력하세요" />
+                      <SpeechBubble message={m.auth.enterPhone} />
                     )}
                     <input
                       id="phone"
@@ -217,10 +226,10 @@ export default function LoginPage() {
 
             <div className="flex flex-col gap-2.5">
               <label htmlFor="password" className="text-base font-medium text-slate-700">
-                비밀번호
+                {m.auth.password}
               </label>
               {passwordInvalid && (
-                <SpeechBubble message="문자 또는 숫자로만 입력하세요" />
+                <SpeechBubble message={m.auth.passwordRule} />
               )}
               <PasswordInput
                 id="password"
@@ -240,7 +249,7 @@ export default function LoginPage() {
                 disabled={loading}
                 className="flex h-14 w-full items-center justify-center rounded-2xl bg-emerald-600 text-lg font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-60"
               >
-                {loading ? "로그인 중..." : "로그인"}
+                {loading ? m.login.submitting : m.login.title}
               </button>
               {unknownId && (
                 <button
@@ -248,12 +257,16 @@ export default function LoginPage() {
                   onClick={() => router.push("/signup")}
                   className="flex h-14 w-full items-center justify-center rounded-2xl border-2 border-emerald-600 bg-white text-lg font-semibold text-emerald-700 transition hover:bg-emerald-50"
                 >
-                  신규 회원 가입
+                  {m.login.signupButton}
                 </button>
               )}
             </div>
           </form>
         )}
+
+        <div className="mt-auto w-full pt-10">
+          <LanguageSwitcher variant="buttons" />
+        </div>
       </div>
     </div>
   );

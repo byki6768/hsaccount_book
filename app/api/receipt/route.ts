@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { formatExpenseConfirm } from "@/lib/aiCategories";
+import { formatSavedConfirm } from "@/lib/aiCategories";
+import { GeminiBusyError } from "@/lib/gemini";
+import { formatMoney } from "@/lib/i18n/format";
+import { DEFAULT_LOCALE, type Locale } from "@/lib/i18n/locales";
+import { getMessages } from "@/lib/i18n/messages";
 import {
   ensureAiCategoryTrees,
   findMinorCategoryId,
@@ -24,7 +28,7 @@ const ALLOWED_MIME = new Set([
   "image/heif",
 ]);
 
-const MAX_BYTES = 4 * 1024 * 1024; // 4MB (Vercel 요청 한도 고려)
+const MAX_BYTES = 4 * 1024 * 1024; // 4MB, within Vercel's request body limit
 
 function todayInSeoul() {
   return new Intl.DateTimeFormat("en-CA", {
@@ -52,35 +56,32 @@ function bufferToBase64(buffer: ArrayBuffer): string {
 }
 
 export async function POST(request: Request) {
+  let locale: Locale = DEFAULT_LOCALE;
   try {
-    if (!process.env.GEMINI_API_KEY) {
-      return NextResponse.json(
-        {
-          error: "GEMINI_API_KEY가 없습니다",
-          reply: "AI 설정에 문제가 있어요. 잠시 후 다시 시도해 주세요.",
-        },
-        { status: 500 },
-      );
-    }
-
     const session = await getSessionMember();
     if (!session) {
       return NextResponse.json(
-        { error: "로그인이 필요합니다", reply: "로그인이 필요해요." },
+        { error: "Login required", reply: getMessages(locale).server.loginRequired },
         { status: 401 },
       );
     }
     const memberUniqueId = session.uniqueId;
+    locale = session.language;
+    const m = getMessages(locale).server;
+
+    if (!process.env.GEMINI_API_KEY) {
+      return NextResponse.json(
+        { error: "GEMINI_API_KEY is not set", reply: m.aiConfig },
+        { status: 500 },
+      );
+    }
 
     const form = await request.formData();
     const file = form.get("image");
 
     if (!(file instanceof File)) {
       return NextResponse.json(
-        {
-          error: "이미지 파일이 필요합니다",
-          reply: "영수증 사진을 선택해 주세요.",
-        },
+        { error: "Image file is required", reply: m.needImage },
         { status: 400 },
       );
     }
@@ -88,19 +89,13 @@ export async function POST(request: Request) {
     const mimeType = (file.type || "image/jpeg").toLowerCase();
     if (!ALLOWED_MIME.has(mimeType) && !mimeType.startsWith("image/")) {
       return NextResponse.json(
-        {
-          error: "지원하지 않는 이미지 형식입니다",
-          reply: "JPG, PNG, WEBP 같은 이미지로 올려 주세요.",
-        },
+        { error: "Unsupported image type", reply: m.unsupportedImage },
         { status: 400 },
       );
     }
     if (file.size <= 0 || file.size > MAX_BYTES) {
       return NextResponse.json(
-        {
-          error: "이미지 용량이 너무 큽니다",
-          reply: "4MB 이하 영수증 사진으로 다시 올려 주세요.",
-        },
+        { error: "Image is too large", reply: m.imageTooLarge },
         { status: 400 },
       );
     }
@@ -110,6 +105,7 @@ export async function POST(request: Request) {
     const { categories, expenseTree, generated } = await ensureAiCategoryTrees(
       supabase,
       memberUniqueId,
+      locale,
     );
 
     const base64 = bufferToBase64(await file.arrayBuffer());
@@ -117,14 +113,14 @@ export async function POST(request: Request) {
       imageBase64: base64,
       mimeType: mimeType === "image/jpg" ? "image/jpeg" : mimeType,
       today,
+      locale,
       expenseTree,
     });
 
     const amount = extracted.amount;
     if (amount == null || !Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({
-        reply:
-          "영수증에서 금액을 읽지 못했어요. 더 선명한 사진으로 다시 찍거나, 텍스트로 알려 주세요.",
+        reply: m.receiptNoAmount,
         extracted,
         saved: null,
         generated,
@@ -132,7 +128,7 @@ export async function POST(request: Request) {
     }
 
     const date = normalizeDate(extracted.date, today);
-    const description = buildReceiptDescription(extracted);
+    const description = buildReceiptDescription(extracted, locale);
     const categoryId = findMinorCategoryId(
       categories,
       "expense",
@@ -147,7 +143,7 @@ export async function POST(request: Request) {
       extracted.store_name ??
       null;
 
-    // 개별 품목이 있으면 품목 합계는 line_items에서만 누적 (중복 방지)
+    // With line items, item totals are accumulated from line_items only (avoids double counting)
     const labels = await recordExpenseLabels(
       supabase,
       memberUniqueId,
@@ -176,11 +172,7 @@ export async function POST(request: Request) {
 
     if (error) {
       return NextResponse.json(
-        {
-          error: error.message,
-          reply: "인식은 됐지만 저장에 실패했어요. 잠시 후 다시 시도해 주세요.",
-          extracted,
-        },
+        { error: error.message, reply: m.receiptSaveFailed, extracted },
         { status: 500 },
       );
     }
@@ -197,30 +189,28 @@ export async function POST(request: Request) {
       categories.find((c) => c.id === categoryId)?.name ??
       extracted.category_minor ??
       extracted.category_major ??
-      "미분류";
+      getMessages(locale).common.uncategorized;
 
     const storeLine = extracted.store_name
       ? ` (${extracted.store_name})`
       : "";
     const itemsLine =
       extracted.line_items.length > 0
-        ? `\n품목: ${extracted.line_items
+        ? `\n${m.receiptItems}: ${extracted.line_items
             .slice(0, 5)
             .map((line) =>
-              line.amount
-                ? `${line.name} ${line.amount.toLocaleString("ko-KR")}원`
-                : line.name,
+              line.amount ? `${line.name} ${formatMoney(line.amount, locale)}` : line.name,
             )
             .join(", ")}`
         : extracted.items.length > 0
-          ? `\n품목: ${extracted.items.slice(0, 5).join(", ")}`
+          ? `\n${m.receiptItems}: ${extracted.items.slice(0, 5).join(", ")}`
           : "";
 
-    const reply = `${formatExpenseConfirm({
-      date,
-      description,
-      amount: Math.round(amount),
-    })}${storeLine}${itemsLine}\n분류: ${categoryName}`;
+    const reply = `${formatSavedConfirm(
+      "expense",
+      { date, description, amount: Math.round(amount) },
+      locale,
+    )}${storeLine}${itemsLine}\n${m.receiptCategory}: ${categoryName}`;
 
     return NextResponse.json({
       reply,
@@ -244,14 +234,10 @@ export async function POST(request: Request) {
       generated,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "영수증 분석 실패";
+    const message = err instanceof Error ? err.message : "Receipt analysis failed";
+    const m = getMessages(locale).server;
     return NextResponse.json(
-      {
-        error: message,
-        reply: message.includes("혼잡")
-          ? message
-          : "영수증 분석 중 오류가 났어요. 잠시 후 다시 시도해 주세요.",
-      },
+      { error: message, reply: err instanceof GeminiBusyError ? m.aiBusy : m.receiptFailed },
       { status: 500 },
     );
   }

@@ -7,7 +7,7 @@ export function createServerSupabase() {
 
   if (!url || !key) {
     throw new Error(
-      "Supabase 서버 환경변수(NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SECRET_KEY)가 설정되지 않았습니다",
+      "Supabase server env vars (NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SECRET_KEY) are not set",
     );
   }
 

@@ -12,17 +12,14 @@ export async function POST(request: Request) {
   try {
     const session = await getSessionMember();
     if (!session) {
-      return NextResponse.json(
-        { error: "로그인이 필요합니다" },
-        { status: 401 },
-      );
+      return NextResponse.json({ error: "Login required" }, { status: 401 });
     }
 
     const body = (await request.json()) as { query?: string };
     const query = body.query?.trim() ?? "";
     if (!query) {
       return NextResponse.json(
-        { error: "검색어를 입력하세요", hits: [], text: "검색어를 입력해 주세요." },
+        { error: "Query is required", hits: [], text: "" },
         { status: 400 },
       );
     }
@@ -33,11 +30,11 @@ export async function POST(request: Request) {
     return NextResponse.json({
       query,
       hits,
-      text: formatSearchHitsForUi(hits),
+      text: formatSearchHitsForUi(hits, session.language),
       count: hits.length,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "검색 실패";
+    const message = err instanceof Error ? err.message : "Search failed";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

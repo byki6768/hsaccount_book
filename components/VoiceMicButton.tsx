@@ -1,5 +1,7 @@
 "use client";
 
+import { useI18n } from "@/lib/i18n/useI18n";
+
 type VoiceMicButtonProps = {
   listening: boolean;
   disabled?: boolean;
@@ -13,11 +15,12 @@ export function VoiceMicButton({
   unsupported,
   onClick,
 }: VoiceMicButtonProps) {
+  const { m } = useI18n();
   const title = unsupported
-    ? "이 브라우저는 음성 인식을 지원하지 않습니다"
+    ? m.speech.unsupported
     : listening
-      ? "듣기 중지"
-      : "음성으로 입력";
+      ? m.speech.stop
+      : m.speech.start;
 
   return (
     <button

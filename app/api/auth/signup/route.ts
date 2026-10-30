@@ -7,14 +7,14 @@ import {
   isValidPhone,
   normalizeCountryCode,
   normalizePhone,
+  type SessionInfo,
 } from "@/lib/auth";
+import { DEFAULT_LOCALE, isLocale } from "@/lib/i18n/locales";
 import { generateUniqueId, hashPassword } from "@/lib/password";
 import { setSessionCookie } from "@/lib/session";
 import { createServerSupabase } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
-
-const DUPLICATE_MESSAGE = "이미 등록된 계정입니다. 로그인해 주세요.";
 
 type SignupBody = {
   mode?: "email" | "phone";
@@ -22,29 +22,33 @@ type SignupBody = {
   countryCode?: string;
   phone?: string;
   password?: string;
+  language?: string;
 };
+
+function invalid(code: string) {
+  return NextResponse.json({ code, error: `Invalid input: ${code}` }, { status: 400 });
+}
+
+function duplicate() {
+  return NextResponse.json({ code: "duplicate" }, { status: 409 });
+}
 
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as SignupBody;
     const password = body.password ?? "";
+    const language = isLocale(body.language) ? body.language : DEFAULT_LOCALE;
 
-    if (!isValidPassword(password)) {
-      return NextResponse.json({ error: "비밀번호 형식이 올바르지 않습니다" }, { status: 400 });
-    }
-    if (body.mode !== "email" && body.mode !== "phone") {
-      return NextResponse.json({ error: "가입 방식을 선택하세요" }, { status: 400 });
-    }
+    if (!isValidPassword(password)) return invalid("invalid_password");
+    if (body.mode !== "email" && body.mode !== "phone") return invalid("invalid_mode");
 
     const email = (body.email ?? "").trim().toLowerCase();
     const countryCode = normalizeCountryCode(body.countryCode ?? "") || "82";
     const phone = normalizePhone(body.phone ?? "");
 
-    if (body.mode === "email" && !isValidEmail(email)) {
-      return NextResponse.json({ error: "이메일을 입력하세요" }, { status: 400 });
-    }
+    if (body.mode === "email" && !isValidEmail(email)) return invalid("invalid_email");
     if (body.mode === "phone" && (!isValidCountryCode(countryCode) || !isValidPhone(phone))) {
-      return NextResponse.json({ error: "휴대폰 번호를 입력하세요" }, { status: 400 });
+      return invalid("invalid_phone");
     }
 
     const supabase = createServerSupabase();
@@ -69,9 +73,7 @@ export async function POST(request: Request) {
         .eq("phone", phone)
         .eq("is_active", true)
         .maybeSingle();
-      if (dup) {
-        return NextResponse.json({ error: DUPLICATE_MESSAGE }, { status: 409 });
-      }
+      if (dup) return duplicate();
     }
 
     const { data, error } = await supabase
@@ -84,22 +86,29 @@ export async function POST(request: Request) {
         phone: body.mode === "phone" ? phone : null,
         password: await hashPassword(password),
         is_active: true,
+        language,
       })
       .select("unique_id, auth_type, email, country_code, phone")
       .single();
 
     if (error) {
-      if (error.code === "23505") {
-        return NextResponse.json({ error: DUPLICATE_MESSAGE }, { status: 409 });
-      }
+      if (error.code === "23505") return duplicate();
       throw new Error(error.message);
     }
 
-    const user = { authType: data.auth_type, loginId: getLoginId(data) };
-    await setSessionCookie({ ...user, uniqueId: data.unique_id });
-    return NextResponse.json(user);
+    const info: SessionInfo = {
+      authType: data.auth_type,
+      loginId: getLoginId(data),
+      language,
+    };
+    await setSessionCookie({
+      uniqueId: data.unique_id,
+      authType: info.authType,
+      loginId: info.loginId,
+    });
+    return NextResponse.json(info);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "가입에 실패했습니다";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const message = err instanceof Error ? err.message : "Sign-up failed";
+    return NextResponse.json({ code: "server_error", error: message }, { status: 500 });
   }
 }

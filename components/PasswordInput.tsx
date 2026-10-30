@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useI18n } from "@/lib/i18n/useI18n";
 
 type PasswordInputProps = {
   id: string;
@@ -17,6 +18,7 @@ export function PasswordInput({
   placeholder = "******",
   className = "",
 }: PasswordInputProps) {
+  const { m } = useI18n();
   const [visible, setVisible] = useState(false);
 
   return (
@@ -33,7 +35,7 @@ export function PasswordInput({
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}
-        aria-label={visible ? "비밀번호 숨기기" : "비밀번호 보기"}
+        aria-label={visible ? m.auth.hidePassword : m.auth.showPassword}
         className="absolute right-3 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
       >
         {visible ? <EyeOpenIcon /> : <EyeClosedIcon />}

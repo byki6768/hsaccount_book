@@ -3,10 +3,10 @@
 import { useState, type ReactNode } from "react";
 import type { Category } from "@/lib/categories";
 import { groupCategories, isMajor, isMinor } from "@/lib/categories";
+import { formatMoney, weekdayNames } from "@/lib/i18n/format";
+import { useI18n } from "@/lib/i18n/useI18n";
 import {
-  WEEKDAY_LABELS,
   buildMonthCells,
-  formatWon,
   monthLabel,
   shiftMonth,
   shiftWeek,
@@ -24,7 +24,7 @@ const PASTEL = {
   expenseAlt: "bg-[#d4a574]",
 } as const;
 
-/** 항목 열용 엷은 파스텔 (테마별) */
+/** Light pastel for the item column (per theme) */
 const LABEL_PASTEL = {
   expense: "bg-[#f8e4e4] text-rose-900",
   income: "bg-[#e2eef8] text-sky-900",
@@ -138,9 +138,10 @@ function Pill({
   );
 }
 
-function cellAmount(amount: number) {
+function CellAmount({ amount }: { amount: number }) {
+  const { locale } = useI18n();
   if (amount === 0) return <span className="text-slate-300">-</span>;
-  return formatWon(amount);
+  return <>{formatMoney(amount, locale)}</>;
 }
 
 function WeeklyGrid({
@@ -153,10 +154,11 @@ function WeeklyGrid({
   rowLabels: string[];
   values: number[][];
   showWeekSubtotal?: boolean;
-  /** 행별 항목 열 테마 (expense | income). 없으면 헤더 테마를 따름 */
+  /** Item column theme per row (expense | income); falls back to the header theme */
   labelThemes?: Array<"expense" | "income">;
   labelHeaderTheme?: "expense" | "income" | "all";
 }) {
+  const { m, locale } = useI18n();
   const headerClass =
     labelHeaderTheme === "expense"
       ? LABEL_PASTEL.headerExpense
@@ -179,16 +181,16 @@ function WeeklyGrid({
             <th
               className={`sticky left-0 z-10 px-2 py-2.5 text-left font-semibold ${headerClass}`}
             >
-              항목
+              {m.stats.colItem}
             </th>
-            {WEEKDAY_LABELS.map((label) => (
+            {weekdayNames(locale, "long").map((label) => (
               <th key={label} className="px-1.5 py-2.5 font-semibold">
                 {label}
               </th>
             ))}
             {showWeekSubtotal && (
               <th className="bg-[#e8f2ec] px-1.5 py-2.5 font-semibold text-emerald-800">
-                주간 잔액
+                {m.stats.colWeekBalance}
               </th>
             )}
           </tr>
@@ -214,12 +216,12 @@ function WeeklyGrid({
                     key={`${rowIndex}-${dayIndex}`}
                     className="px-1 py-2 tabular-nums text-slate-700"
                   >
-                    {cellAmount(amount)}
+                    <CellAmount amount={amount} />
                   </td>
                 ))}
                 {showWeekSubtotal && (
                   <td className="bg-[#f3faf6] px-1 py-2 font-semibold tabular-nums text-emerald-800">
-                    {cellAmount(weekSubtotal)}
+                    <CellAmount amount={weekSubtotal} />
                   </td>
                 )}
               </tr>
@@ -232,14 +234,15 @@ function WeeklyGrid({
 }
 
 function WeekBalanceBar({ balance }: { balance: number }) {
+  const { m, locale } = useI18n();
   return (
     <div className="mt-3 flex justify-end">
       <div className="flex w-1/2 min-w-[11rem] max-w-full overflow-hidden rounded-xl border border-[#c5ddd2] bg-[#dceee6] text-sm shadow-sm sm:text-base">
         <div className="flex w-[42%] items-center justify-center border-r border-[#c5ddd2] bg-[#cfe6db] px-2 py-2.5 font-semibold text-emerald-900">
-          Balance
+          {m.stats.balance}
         </div>
         <div className="flex flex-1 items-center justify-end px-3 py-2.5 font-semibold tabular-nums text-slate-800">
-          {formatWon(balance)}
+          {formatMoney(balance, locale)}
         </div>
       </div>
     </div>
@@ -253,16 +256,17 @@ function MonthCalendarShell({
   anchorKey: string;
   renderDay: (dateKey: string) => ReactNode;
 }) {
+  const { locale } = useI18n();
   const cells = buildMonthCells(anchorKey);
   return (
     <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
       <div className="grid grid-cols-7 border-b border-slate-100 bg-slate-50">
-        {WEEKDAY_LABELS.map((label) => (
+        {weekdayNames(locale, "short").map((label) => (
           <div
             key={label}
             className="px-0.5 py-2 text-center text-[10px] font-semibold text-slate-500 sm:text-xs"
           >
-            {label.replace("요일", "")}
+            {label}
           </div>
         ))}
       </div>
@@ -298,6 +302,7 @@ export function OverallPeriodPanel({
   anchorKey: string;
   onAnchorKey: (key: string) => void;
 }) {
+  const { m, locale } = useI18n();
   const [mode, setMode] = useState<"week" | "month">("week");
   const incomeByDate = sumByDate(incomeRows);
   const expenseByDate = sumByDate(expenseRows);
@@ -314,11 +319,11 @@ export function OverallPeriodPanel({
       <PeriodToggle
         mode={mode}
         onMode={setMode}
-        weeklyLabel="주간 지출·수입 보기"
-        monthlyLabel="월간 지출·수입 보기"
+        weeklyLabel={m.stats.weeklyOverall}
+        monthlyLabel={m.stats.monthlyOverall}
       />
       <NavBar
-        label={mode === "week" ? weekRangeLabel(anchorKey) : monthLabel(anchorKey)}
+        label={mode === "week" ? weekRangeLabel(anchorKey) : monthLabel(anchorKey, locale)}
         onPrev={() =>
           onAnchorKey(
             mode === "week" ? shiftWeek(anchorKey, -1) : shiftMonth(anchorKey, -1),
@@ -331,13 +336,13 @@ export function OverallPeriodPanel({
         }
       />
       <h2 className="mt-2 text-base font-semibold text-slate-800">
-        {mode === "week" ? "주간 지출·수입 보기" : "월간 지출·수입 보기"}
+        {mode === "week" ? m.stats.weeklyOverall : m.stats.monthlyOverall}
       </h2>
 
       {mode === "week" ? (
         <>
           <WeeklyGrid
-            rowLabels={["지출", "수입"]}
+            rowLabels={[m.stats.rowExpense, m.stats.rowIncome]}
             values={[weekExpense, weekIncome]}
             labelThemes={["expense", "income"]}
             labelHeaderTheme="all"
@@ -354,9 +359,9 @@ export function OverallPeriodPanel({
             if (income === 0 && expense === 0) return null;
             return (
               <>
-                <Pill className={PASTEL.balance}>잔액: {formatWon(balance)}</Pill>
-                <Pill className={PASTEL.expense}>당일지출: {formatWon(expense)}</Pill>
-                <Pill className={PASTEL.income}>당일수입: {formatWon(income)}</Pill>
+                <Pill className={PASTEL.balance}>{m.stats.pillBalance}: {formatMoney(balance, locale)}</Pill>
+                <Pill className={PASTEL.expense}>{m.stats.pillDayExpense}: {formatMoney(expense, locale)}</Pill>
+                <Pill className={PASTEL.income}>{m.stats.pillDayIncome}: {formatMoney(income, locale)}</Pill>
               </>
             );
           }}
@@ -379,6 +384,7 @@ export function CategoryPeriodPanel({
   anchorKey: string;
   onAnchorKey: (key: string) => void;
 }) {
+  const { m, locale } = useI18n();
   const [mode, setMode] = useState<"week" | "month">("week");
   const weekKeys = weekDateKeys(anchorKey);
   const { majors, byDateMajor, uncategorizedByDate } = majorAmountsByDate(
@@ -403,15 +409,15 @@ export function CategoryPeriodPanel({
   const uncategorizedSum = uncategorizedValues.reduce((a, b) => a + b, 0);
   if (uncategorizedSum > 0) {
     majorRows.push({
-      label: "미분류",
+      label: m.common.uncategorized,
       values: uncategorizedValues,
     });
   }
 
-  const titleWeek = kind === "income" ? "주간 수입 현황" : "주간 지출 현황";
-  const titleMonth = kind === "income" ? "월간 수입 현황" : "월간 지출 현황";
-  const btnWeek = kind === "income" ? "주간 수입 현황" : "주간 지출 현황";
-  const btnMonth = kind === "income" ? "월간 수입 현황" : "월간 지출 현황";
+  const titleWeek = kind === "income" ? m.stats.weeklyIncome : m.stats.weeklyExpense;
+  const titleMonth = kind === "income" ? m.stats.monthlyIncome : m.stats.monthlyExpense;
+  const btnWeek = titleWeek;
+  const btnMonth = titleMonth;
   const pillClass = kind === "income" ? PASTEL.incomeAlt : PASTEL.expenseAlt;
 
   return (
@@ -423,7 +429,7 @@ export function CategoryPeriodPanel({
         monthlyLabel={btnMonth}
       />
       <NavBar
-        label={mode === "week" ? weekRangeLabel(anchorKey) : monthLabel(anchorKey)}
+        label={mode === "week" ? weekRangeLabel(anchorKey) : monthLabel(anchorKey, locale)}
         onPrev={() =>
           onAnchorKey(
             mode === "week" ? shiftWeek(anchorKey, -1) : shiftMonth(anchorKey, -1),
@@ -455,8 +461,8 @@ export function CategoryPeriodPanel({
             if (total === 0) return null;
             return (
               <Pill className={pillClass}>
-                {kind === "income" ? "당일수입합계" : "당일지출합계"}:{" "}
-                {formatWon(total)}
+                {kind === "income" ? m.stats.dayIncomeTotal : m.stats.dayExpenseTotal}:{" "}
+                {formatMoney(total, locale)}
               </Pill>
             );
           }}
